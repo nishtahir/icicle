@@ -2,6 +2,25 @@
 A minimalist build tool to manage and execute commands using [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build).
 
 # Usage
+
+```shell
+$ icicle --help
+
+Usage: icicle [OPTIONS] COMMAND [ARGS]...
+
+Options:
+  -v, --verbose  Display verbose output
+  -h, --help     Show this message and exit
+
+Commands:
+  install    Install an OSS CAD Suite toolchain
+  uninstall  Uninstall an OSS CAD Suite toolchain
+  list       List installed toolchain versions
+  default    Set an installed toolchain as the default toolchain
+  run        Run an arbitrary icicle script
+
+```
+
 Add a `icicle.yml` manifest to your project. This should include a `toolchain` as well as 
 any number of scripts you wish to execute later. The `toolchain` should correspond to an OSS CAD Suite release.
 

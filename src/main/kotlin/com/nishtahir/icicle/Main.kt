@@ -14,8 +14,11 @@ fun main(argv: Array<out String>) {
 
     // Setup CLI
     val downloader = ToolchainDownloader(manifest)
-    Cli().subcommands(Install(manifest, downloader))
-        .subcommands(Run(manifest))
+    Cli().subcommands(InstallCommand(manifest, downloader))
+        .subcommands(UninstallCommand(manifest))
+        .subcommands(ListCommand(manifest))
+        .subcommands(DefaultCommand(manifest))
+        .subcommands(RunCommand(manifest))
         .main(argv)
 }
 

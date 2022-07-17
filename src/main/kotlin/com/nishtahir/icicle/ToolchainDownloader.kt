@@ -5,6 +5,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
+import java.lang.IllegalArgumentException
 import java.net.URI
 import java.nio.file.Files
 import kotlin.math.roundToInt
@@ -46,10 +47,17 @@ class ToolchainDownloader(private val manifest: Manifest) {
         return OSS_TOOLS_URL_TEMPLATE
             .replace("{{date}}", toolchain)
             .replace("{{minified-date}}", minified)
+            .replace("{{os}}", getOsName())
+            .replace("{{arch}}", getArchName())
     }
 
 
     private fun extractTempFileToToolchainDir(temp: File, toolchain: String) {
+        val toolchainHome = File(manifest.toolchainHome)
+        if (!toolchainHome.exists()) {
+            toolchainHome.mkdirs()
+        }
+
         val toolchainDir = File("${manifest.toolchainHome}/$toolchain")
         if (toolchainDir.exists()) {
             toolchainDir.deleteRecursively()
@@ -79,12 +87,27 @@ class ToolchainDownloader(private val manifest: Manifest) {
                     }
                 }
             }
+    }
 
+    private fun getOsName(): String {
+        val osName = manifest.os.lowercase()
+        return if (osName.contains("mac os")) "darwin"
+        else if (osName.contains("linux")) "linux"
+        // TODO - Add Windows support
+        else throw IllegalArgumentException("Unsupported OS ${manifest.os}")
+    }
+
+    private fun getArchName(): String {
+        return when (manifest.arch) {
+            "aarch64" -> "arm64"
+            "amd64", "x86_64" -> "x64"
+            else -> throw IllegalArgumentException("Unsupported Architecture ${manifest.arch}")
+        }
     }
 
     companion object {
-        const val OSS_TOOLS_URL_TEMPLATE =
-            "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/{{date}}/oss-cad-suite-darwin-arm64-{{minified-date}}.tgz"
+        private const val OSS_TOOLS_URL_TEMPLATE =
+            "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/{{date}}/oss-cad-suite-{{os}}-{{arch}}-{{minified-date}}.tgz"
         private val EXECUTABLE_DIRS = listOf("bin", "libexec")
     }
 }
