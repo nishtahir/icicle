@@ -7,10 +7,13 @@ import java.util.regex.Pattern
 
 fun main(argv: Array<out String>) {
     val cwd = System.getProperty("user.dir")
-    val manifestFile = findManifestFile(cwd) ?: throw IllegalStateException("Failed to find 'icicle.yml'.")
-
-    val yaml = createYaml()
-    val manifest = yaml.decodeFromStream(Manifest.serializer(), manifestFile.inputStream())
+    val maybeManifest = findManifestFile(cwd)
+    val manifest = if (maybeManifest?.exists() == true) {
+        val yaml = createYaml()
+        yaml.decodeFromStream(deserializer = Manifest.serializer(), source = maybeManifest.inputStream())
+    } else {
+        Manifest.default()
+    }
 
     // Setup CLI
     val downloader = ToolchainDownloader(manifest)
@@ -19,6 +22,7 @@ fun main(argv: Array<out String>) {
         .subcommands(ListCommand(manifest))
         .subcommands(DefaultCommand(manifest))
         .subcommands(RunCommand(manifest))
+        .subcommands(EnvCommand(manifest))
         .main(argv)
 }
 

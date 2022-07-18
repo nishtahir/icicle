@@ -25,7 +25,9 @@ class InstallCommand(
     private val version by argument(help = "Toolchain version to install").optional()
 
     override fun run() {
-        val toolchainVersion = version ?: manifest.toolchain
+        val toolchainVersion = version
+            ?: manifest.toolchain
+            ?: throw IllegalStateException("Please provide a toolchain to install or declare a toolchain in an icicle.yml file.")
         toolchainDownloader.downloadAndExtractToolchain(toolchainVersion)
     }
 }
@@ -97,5 +99,15 @@ class RunCommand(private val manifest: Manifest) : CliktCommand(help = "Run an a
             exitProcess(1)
         }
         ScriptExecutor(manifest).executeScript(script)
+    }
+}
+
+class EnvCommand(private val manifest: Manifest) : CliktCommand(help = "") {
+    override fun run() {
+        val defaultAlias = File("${manifest.aliasesHome}/default/").toPath()
+        val binPath = "${defaultAlias}/oss-cad-suite/bin"
+        val libExecPath = "${defaultAlias}/oss-cad-suite/libexec"
+        println("export PATH=$binPath:PATH")
+        println("export PATH=$libExecPath:PATH")
     }
 }
