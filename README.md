@@ -18,6 +18,7 @@ Commands:
   list       List installed toolchain versions
   default    Set an installed toolchain as the default toolchain
   run        Run an arbitrary icicle script
+  env        Print required environment variables for icicle
 
 ```
 

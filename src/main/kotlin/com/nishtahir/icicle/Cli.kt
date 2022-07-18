@@ -102,7 +102,7 @@ class RunCommand(private val manifest: Manifest) : CliktCommand(help = "Run an a
     }
 }
 
-class EnvCommand(private val manifest: Manifest) : CliktCommand(help = "") {
+class EnvCommand(private val manifest: Manifest) : CliktCommand(help = "Print required environment variables for icicle") {
     override fun run() {
         val defaultAlias = File("${manifest.aliasesHome}/default/").toPath()
         val binPath = "${defaultAlias}/oss-cad-suite/bin"
