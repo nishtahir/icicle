@@ -14,10 +14,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.charleskorn.kaml:kaml:0.46.0")
     implementation("com.github.ajalt.clikt:clikt:3.5.0")
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
-    implementation("com.jaredrummler:ktsh:1.0.0")
     implementation("org.apache.commons:commons-compress:1.21")
     testImplementation(kotlin("test"))
 }
