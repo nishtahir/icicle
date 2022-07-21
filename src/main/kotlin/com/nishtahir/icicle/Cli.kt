@@ -14,7 +14,6 @@ import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
-
 class Cli : CliktCommand(name = "icicle", printHelpOnEmptyArgs = true) {
     override fun run() {
 
@@ -187,6 +186,48 @@ class DefaultCommand(private val env: Environment) :
     }
 }
 
+class UseCommand(private val env: Environment) :
+    CliktCommand(help = "Change the oss cad toolchain version") {
+    private val version by argument(help = "Toolchain version to use")
+
+    override fun run() {
+        val shellPath = requireNotNull(env.shellPath) {
+            "The icicle environment doesn't seem to be set. Did you setup your shell to 'eval $(icicle env)'?"
+        }
+        val shellSymlink = File(shellPath)
+
+        val searchPaths = listOf(
+            File("${env.toolchainHome}/$version"),
+            File("${env.aliasesHome}/$version"),
+        )
+
+        val toolchain = requireNotNull(searchPaths.firstOrNull(File::exists)) {
+            "Unable to find toolchain '$version'. Did you install it with 'icicle install'?"
+        }
+
+        if (!toolchain.isDirectory) {
+            println("'$version' is not a valid toolchain directory.")
+            exitProcess(1)
+        }
+
+        shellSymlink.delete()
+        Files.createSymbolicLink(shellSymlink.toPath(), toolchain.toPath())
+    }
+}
+
+class CurrentCommand(private val env: Environment) :
+    CliktCommand(help = "Print the active oss cad toolchain version") {
+
+    override fun run() {
+        val shellPath = requireNotNull(env.shellPath) {
+            "The icicle environment doesn't seem to be set. Did you setup your shell to 'eval $(icicle env)'?"
+        }
+        val shellSymlink = File(shellPath).toPath().toRealPath()
+        val versionFolder = shellSymlink.toString().replaceFirst("${env.toolchainHome}/", "")
+        println(versionFolder)
+    }
+}
+
 class EnvCommand(private val env: Environment) :
     CliktCommand(help = "Print and setup required environment variables for icicle") {
     override fun run() {
@@ -204,18 +245,19 @@ class EnvCommand(private val env: Environment) :
 
         println("export ICICLE_SHELL_PATH=${shellSessionSymLink}")
         println("export ICICLE_HOME=${env.icicleHome}")
-        println("export PATH=$binPath:PATH")
-        println("export PATH=$libExecPath:PATH")
+        println("export PATH=$binPath:\$PATH")
+        println("export PATH=$libExecPath:\$PATH")
     }
 
     private fun cleanupCaches() {
-        // TODO
-//        val attrs = Files.readAttributes(
-//            link,
-//            BasicFileAttributes::class.java
-//        )
-//        val time = attrs.lastAccessTime()
-//        println(time)
+        // TODO - we should clean up links that are have not been accessed in a significant of time
+        //
+        //  val attrs = Files.readAttributes(
+        //    link,
+        //    BasicFileAttributes::class.java
+        //  )
+        //  val time = attrs.lastAccessTime()
+        //  println(time)
     }
 
     private fun createTempSymbolicLink(dir: File, destination: Path): File {

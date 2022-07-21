@@ -5,6 +5,7 @@ import kotlin.io.path.Path
 
 data class Environment(
     val icicleHome: String,
+    val shellPath: String?,
     val os: String,
     val arch: String,
 ) {
@@ -29,20 +30,23 @@ data class Environment(
         const val TOOLCHAIN_FILE_NAME = ".icicle-toolchain"
 
         fun create(): Environment {
+            val shellPath = System.getenv("ICICLE_SHELL_PATH")?.trim()
             val icicleHome = System.getenv("ICICLE_HOME")
                 ?.trim()
                 ?.removeTrailingSlash()
                 ?: "${System.getProperty("user.home")}/.icicle"
+
             return Environment(
                 icicleHome = icicleHome,
+                shellPath = shellPath,
                 os = System.getProperty("os.name"),
                 arch = System.getProperty("os.arch")
             )
         }
 
-        fun String.removeTrailingSlash(): String {
+        private fun String.removeTrailingSlash(): String {
             if (this.endsWith("/")) {
-                return this.substring(0, this.length - 1);
+                return this.substring(0, this.length - 1)
             }
             return this
         }
