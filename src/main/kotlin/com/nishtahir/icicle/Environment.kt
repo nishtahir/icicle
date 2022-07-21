@@ -1,6 +1,7 @@
 package com.nishtahir.icicle
 
 import java.io.File
+import java.util.*
 import kotlin.io.path.Path
 
 data class Environment(
@@ -8,6 +9,7 @@ data class Environment(
     val shellPath: String?,
     val os: String,
     val arch: String,
+    val version: String,
 ) {
     val toolchainHome = "$icicleHome/toolchains"
     val aliasesHome = "$icicleHome/aliases"
@@ -40,8 +42,15 @@ data class Environment(
                 icicleHome = icicleHome,
                 shellPath = shellPath,
                 os = System.getProperty("os.name"),
-                arch = System.getProperty("os.arch")
+                arch = System.getProperty("os.arch"),
+                version = applicationVersion()
             )
+        }
+
+        private fun applicationVersion(): String {
+            val properties = Properties()
+            properties.load(Environment::class.java.getResourceAsStream("/version.properties"))
+            return properties.getProperty("version")
         }
 
         private fun String.removeTrailingSlash(): String {

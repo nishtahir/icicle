@@ -17,6 +17,7 @@ $ icicle --help
 Usage: icicle [OPTIONS] COMMAND [ARGS]...
 
 Options:
+  --version   Show the version and exit
   -h, --help  Show this message and exit
 
 Commands:
@@ -46,8 +47,8 @@ documentation for more information.
 To build the native image for your platform.
 
 ```shell
-$ ./gradlew nativeBuild
+$ ./gradlew nativeCompile
 ```
 
-This will output the compiled native binary to `./build/native/nativeBuild/icicle`
+This will output the compiled native binary to `./build/native/nativeCompile/icicle`
 

@@ -3,6 +3,10 @@ package com.nishtahir.icicle
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.versionOption
 import com.github.kittinunf.fuel.Fuel
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
@@ -14,9 +18,8 @@ import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
-class Cli : CliktCommand(name = "icicle", printHelpOnEmptyArgs = true) {
+class Cli() : CliktCommand(name = "icicle", printHelpOnEmptyArgs = true) {
     override fun run() {
-
     }
 }
 

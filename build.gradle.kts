@@ -1,13 +1,25 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.util.Properties
+import java.io.FileOutputStream
 
 plugins {
     kotlin("jvm") version "1.7.10"
     kotlin("plugin.serialization") version "1.7.10"
-    id("org.graalvm.buildtools.native") version "0.9.4"
+    id("org.graalvm.buildtools.native") version "0.9.13"
 }
 
-group = "com.nishtahir"
-version = "1.0-SNAPSHOT"
+group = "com.nishtahir.icicle"
+version = "0.0.1"
+
+val generatedPropertiesDir = "$buildDir/properties"
+sourceSets {
+    main {
+        resources {
+            srcDirs.add(file(generatedPropertiesDir))
+            output.dir(generatedPropertiesDir)
+        }
+    }
+}
 
 repositories {
     mavenCentral()
@@ -20,14 +32,19 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
-nativeBuild {
-    imageName.set("icicle")
-    mainClass.set("com.nishtahir.icicle.MainKt")
-    buildArgs.add("--enable-url-protocols=https")
-    javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(11))
-        vendor.set(JvmVendorSpec.matching("GraalVM Community"))
-    })
+graalvmNative {
+    binaries {
+        named("main") {
+            imageName.set("icicle")
+            mainClass.set("com.nishtahir.icicle.MainKt")
+            buildArgs.add("--enable-url-protocols=https")
+            javaLauncher.set(javaToolchains.launcherFor {
+                languageVersion.set(JavaLanguageVersion.of(11))
+                vendor.set(JvmVendorSpec.matching("GraalVM Community"))
+            })
+            configurationFileDirectories.from(file("./.graal"))
+        }
+    }
 }
 
 tasks.test {
@@ -36,4 +53,19 @@ tasks.test {
 
 tasks.withType<KotlinCompile> {
     kotlinOptions.jvmTarget = "11"
+}
+
+tasks.register("generateVersionProperties") {
+    doLast {
+        val propertiesFile = file("$generatedPropertiesDir/version.properties")
+        propertiesFile.parentFile.mkdirs()
+        val properties = Properties()
+        properties.setProperty("version", "$version")
+        val out = FileOutputStream(propertiesFile)
+        properties.store(out, null)
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn("generateVersionProperties")
 }
