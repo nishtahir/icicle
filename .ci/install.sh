@@ -17,7 +17,8 @@ set_filename() {
       FILENAME="icicle-macos"
     fi
   elif [ "$OS" = "Linux" ]; then
-    echo "TODO"
+    # TODO - release arm builds
+    FILENAME="fnm-linux"
   fi
 }
 

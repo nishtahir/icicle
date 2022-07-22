@@ -7,7 +7,13 @@ by [fnm](https://github.com/Schniz/fnm).
 
 ## Installation
 
-TODO 
+For Unix shells, use the automatic [installation script](https://github.com/nishtahir/icicle/blob/main/.ci/install.sh):
+
+```shell
+$ curl -fsSL https://raw.githubusercontent.com/nishtahir/icicle/main/.ci/install.sh | bash 
+```
+
+To uninstall `icicle` and all installed toolchains simply delete the `~/.icicle` directory.
 
 ## Commands
 
