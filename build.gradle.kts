@@ -4,7 +4,7 @@ import java.io.FileOutputStream
 
 plugins {
     kotlin("jvm") version "1.7.10"
-    kotlin("plugin.serialization") version "1.7.10"
+    // https://graalvm.github.io/native-build-tools/0.9.13/gradle-plugin.html
     id("org.graalvm.buildtools.native") version "0.9.13"
 }
 
