@@ -1,0 +1,21 @@
+on: [push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: '22.1.0'
+          java-version: '11'
+          components: 'native-image'
+      - run: ./gradlew nativeCompile
+      - name: Upload binary
+        uses: actions/upload-artifact@v2
+        with:
+          name: icicle-${{ matrix.os }}
+          path: build/native/nativeCompile/icicle
