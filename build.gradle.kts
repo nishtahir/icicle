@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.nishtahir.icicle"
-version = "0.0.1"
+version = "0.0.2"
 
 val generatedPropertiesDir = "$buildDir/properties"
 sourceSets {
