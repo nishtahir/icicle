@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.versionOption
 import com.github.kittinunf.fuel.Fuel
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import java.io.BufferedInputStream
@@ -73,7 +74,6 @@ class InstallCommand(private val env: Environment) : CliktCommand(help = "Instal
             .replace("{{arch}}", getArchName())
     }
 
-
     private fun extractTempFileToToolchainDir(temp: File, toolchain: String) {
         val toolchainHome = File(env.toolchainHome)
         if (!toolchainHome.exists()) {
@@ -92,7 +92,7 @@ class InstallCommand(private val env: Environment) : CliktCommand(help = "Instal
             .useWith(::TarArchiveInputStream)
             .use { tarArchiveInputStream ->
                 while (true) {
-                    val entry = tarArchiveInputStream.nextEntry ?: break
+                    val entry = (tarArchiveInputStream.nextEntry ?: break) as TarArchiveEntry
                     val file = File("$toolchainDir/${entry.name}")
                     if (entry.isDirectory) {
                         if (!file.exists()) {
@@ -101,11 +101,11 @@ class InstallCommand(private val env: Environment) : CliktCommand(help = "Instal
                     } else {
                         file.parentFile.mkdirs()
                         Files.copy(tarArchiveInputStream, file.toPath())
-                        // Set executable permissions for the content of the bin folder
-                        if (file.parentFile.isDirectory && EXECUTABLE_DIRS.any { file.parentFile.nameWithoutExtension == it }
-                        ) {
-                            file.setExecutable(true)
-                        }
+
+                        // Check if executable bit is set on the archive entry
+                        // and set the equivalent bit on the destination file
+                        val isExecutable = entry.mode.and(100) > 0
+                        file.setExecutable(isExecutable)
                     }
                 }
             }
@@ -115,7 +115,6 @@ class InstallCommand(private val env: Environment) : CliktCommand(help = "Instal
         val osName = env.os.lowercase()
         return if (osName.contains("mac os")) "darwin"
         else if (osName.contains("linux")) "linux"
-        // TODO - Figure out Windows support?
         else throw IllegalArgumentException("Unsupported OS ${env.os}")
     }
 
@@ -130,7 +129,6 @@ class InstallCommand(private val env: Environment) : CliktCommand(help = "Instal
     companion object {
         private const val OSS_TOOLS_URL_TEMPLATE =
             "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/{{date}}/oss-cad-suite-{{os}}-{{arch}}-{{minified-date}}.tgz"
-        private val EXECUTABLE_DIRS = listOf("bin", "libexec")
     }
 }
 
