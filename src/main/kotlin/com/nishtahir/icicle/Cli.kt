@@ -3,10 +3,6 @@ package com.nishtahir.icicle
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
-import com.github.ajalt.clikt.parameters.options.default
-import com.github.ajalt.clikt.parameters.options.flag
-import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.clikt.parameters.options.versionOption
 import com.github.kittinunf.fuel.Fuel
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -189,9 +185,10 @@ class DefaultCommand(private val env: Environment) :
 
 class UseCommand(private val env: Environment) :
     CliktCommand(help = "Change the oss cad toolchain version") {
-    private val version by argument(help = "Toolchain version to use")
+    private val version by argument(help = "Toolchain version to use").optional()
 
     override fun run() {
+        val version = this.version ?: env.toolchainFileVersion()
         val shellPath = requireNotNull(env.shellPath) {
             "The icicle environment doesn't seem to be set. Did you setup your shell to 'eval $(icicle env)'?"
         }
