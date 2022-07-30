@@ -11,11 +11,15 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.net.URI
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
-class Cli() : CliktCommand(name = "icicle", printHelpOnEmptyArgs = true) {
+class Cli : CliktCommand(name = "icicle", printHelpOnEmptyArgs = true) {
     override fun run() {
     }
 }
@@ -247,18 +251,30 @@ class EnvCommand(private val env: Environment) :
         println("export PATH=$libExecPath:\$PATH")
     }
 
-    private fun cleanupCaches() {
-        // TODO - we should clean up links that are have not been accessed in a significant of time
-        //
-        //  val attrs = Files.readAttributes(
-        //    link,
-        //    BasicFileAttributes::class.java
-        //  )
-        //  val time = attrs.lastAccessTime()
-        //  println(time)
+    /**
+     * Clean up cached env symlinks that are older than the given period
+     * @param expiresInDays period after which to delete
+     */
+    private fun cleanupCaches(expiresInDays: Long = 3L) {
+        val now: Instant = Instant.now()
+        File(env.cachesHome).listFiles()
+            ?.filter { file ->
+                val attrs = Files.readAttributes(
+                    /* path = */ file.toPath(),
+                    /* type = */ BasicFileAttributes::class.java,
+                    /* ...options = */ LinkOption.NOFOLLOW_LINKS
+                )
+                val lastAccessed = attrs.lastAccessTime().toInstant()
+                lastAccessed.isBefore(now.minus(expiresInDays, ChronoUnit.DAYS))
+            }
+            ?.forEach(File::delete)
     }
 
+    /**
+     * Generates a symlink with a temporary file name.
+     */
     private fun createTempSymbolicLink(dir: File, destination: Path): File {
+        // Hack to prevent file name collisions
         val path = File.createTempFile("icicle_", "", dir).also(File::delete)
         return Files.createSymbolicLink(path.toPath(), destination).toFile()
     }
