@@ -20,8 +20,7 @@ jobs:
         run: echo "FILE_NAME=icicle-macos.zip" >> $GITHUB_ENV
       - if: startsWith(matrix.os, 'ubuntu')
         run: echo "FILE_NAME=icicle-linux.zip" >> $GITHUB_ENV
-      - uses: Shopify/upload-to-release@v1.0.1
+      - uses: actions/upload-artifact@v3
         with:
           name: ${{ env.FILE_NAME }}
           path: build/native/nativeCompile/icicle
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
