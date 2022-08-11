@@ -1,7 +1,7 @@
 on:
   push:
     tags:
-      - '*'
+      - 'v*.*.*'
 jobs:
   release:
     strategy:
@@ -25,9 +25,9 @@ jobs:
         with:
           type: 'zip'
           path: build/native/nativeCompile/icicle
-          filename: $FILE_NAME
+          filename: ${{ env.FILE_NAME }}
       - name: Upload Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: $FILE_NAME
+          artifacts: ${{ env.FILE_NAME }}
           token: ${{ secrets.GITHUB_TOKEN }}
