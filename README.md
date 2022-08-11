@@ -1,9 +1,9 @@
 # Icicle
 
+[![.github/workflows/build.yml](https://github.com/nishtahir/icicle/actions/workflows/build.yml/badge.svg)](https://github.com/nishtahir/icicle/actions/workflows/build.yml)
+
 A minimalist [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) version manager inspired
 by [fnm](https://github.com/Schniz/fnm).
-
-# Usage
 
 ## Installation
 
@@ -37,9 +37,53 @@ Commands:
 
 ```
 
-# Development
+## Usage
 
-## Requirements
+* `install` - Installs a new OSS Cad Suite toolchain. You can either provide a version to install or a version in a `.icicle-toolchain` file.
+
+  ```
+  // .icicle-toolchain
+  2022-07-12
+
+  $ icicle install
+  Downloading: https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2022-07-12/oss-cad-suite-darwin-arm64-20220712.tgz
+  ...
+
+  // or
+
+  $ icicle install 2022-07-12
+  ```
+
+* `list` - List all installed OSS Cad Suite toolchains
+
+  ```
+  $ icicle list
+  * 2022-07-15 default
+  * 2022-07-12
+  * 2022-07-28
+  ```
+* `current` - Print the installed OSS CAD Suite toolchain active in the shell session
+  ```
+  $ icicle current
+  2022-07-15
+  ```
+
+* `use` - Set an installed version of the OSS CAD Suite toolchain as the current version linked in the shell session
+  ```
+  $ icicle use 2022-07-28
+  $ icicle current
+    2022-07-28
+  ```
+
+* `default` - Set an installed version of the OSS CAD Suite toolchain as the default version linked with new shell sessions
+  ```
+  $ icicle default 2022-07-28
+    Setting 2022-07-28 as default.
+  ```
+
+## Development
+
+### Requirements
 
 * JDK 11
 * GraalVM
