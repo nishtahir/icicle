@@ -1,4 +1,7 @@
-on: [push]
+on:
+  push:
+    branches:
+      - *
 
 jobs:
   build:
@@ -14,8 +17,3 @@ jobs:
           java-version: '11'
           components: 'native-image'
       - run: ./gradlew nativeCompile
-      - name: Upload binary
-        uses: actions/upload-artifact@v2
-        with:
-          name: icicle-${{ matrix.os }}
-          path: build/native/nativeCompile/icicle

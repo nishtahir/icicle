@@ -17,8 +17,8 @@ set_filename() {
       FILENAME="icicle-macos"
     fi
   elif [ "$OS" = "Linux" ]; then
-    # TODO - release arm builds
-    FILENAME="fnm-linux"
+    # TODO - arm builds?
+    FILENAME="icicle-linux"
   fi
 }
 
