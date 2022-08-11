@@ -20,14 +20,8 @@ jobs:
         run: echo "FILE_NAME=icicle-macos.zip" >> $GITHUB_ENV
       - if: startsWith(matrix.os, 'ubuntu')
         run: echo "FILE_NAME=icicle-linux.zip" >> $GITHUB_ENV
-      - name: Archive Release
-        uses: thedoctor0/zip-release@main
+      - uses: Shopify/upload-to-release@v1
         with:
-          type: 'zip'
+          name: ${{ env.FILE_NAME }}
           path: build/native/nativeCompile/icicle
-          filename: ${{ env.FILE_NAME }}
-      - name: Upload Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: ${{ env.FILE_NAME }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
