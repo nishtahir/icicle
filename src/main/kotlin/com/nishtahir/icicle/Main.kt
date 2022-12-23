@@ -4,6 +4,8 @@ import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.versionOption
 
 fun main(argv: Array<out String>) {
+    val s: String = 5
+
     val environment = Environment.create()
 
     // Setup CLI
