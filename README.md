@@ -7,33 +7,47 @@ by [fnm](https://github.com/Schniz/fnm).
 
 ## Installation
 
+### Script
+
 For Unix shells, use the automatic [installation script](https://github.com/nishtahir/icicle/blob/main/.ci/install.sh):
 
 ```shell
 $ curl -fsSL https://raw.githubusercontent.com/nishtahir/icicle/main/.ci/install.sh | bash 
 ```
 
-To uninstall `icicle` and all installed toolchains simply delete the `~/.icicle` directory.
+To uninstall `icicle` and all installed toolchains, delete the `~/.icicle` directory.
+
+### Manual
+
+For manual installation, download the latest release from the [releases page](). Extract the archive and move the `icicle` binary to a directory in your `PATH`. Then add the following to your shell profile:
+
+```shell
+# ~/.bashrc
+eval "$(icicle env)"
+```
 
 ## Commands
 
 ```
 $ icicle --help
 
-Usage: icicle [OPTIONS] COMMAND [ARGS]...
+CLI for OSS CAD Suite toolchain management
 
-Options:
-  --version   Show the version and exit
-  -h, --help  Show this message and exit
+Usage: icicle [COMMAND]
 
 Commands:
+  use        Change the oss cad toolchain version
   default    Set an installed toolchain as the default toolchain
+  install    Install an OSS CAD Suite toolchain
   current    Print the active oss cad toolchain version
   env        Print and setup required environment variables for icicle
-  install    Install an OSS CAD Suite toolchain
   list       List installed toolchain versions
   uninstall  Uninstall an OSS CAD Suite toolchain
-  use        Change the oss cad toolchain version
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
 
 ```
 
@@ -46,7 +60,6 @@ Commands:
   2022-07-12
 
   $ icicle install
-  Downloading: https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2022-07-12/oss-cad-suite-darwin-arm64-20220712.tgz
   ...
 
   // or
@@ -54,11 +67,17 @@ Commands:
   $ icicle install 2022-07-12
   ```
 
+* `uninstall` - Uninstalls an OSS Cad Suite toolchain
+
+  ```
+  $ icicle uninstall 2022-07-12
+  ```
+
 * `list` - List all installed OSS Cad Suite toolchains
 
   ```
   $ icicle list
-  * 2022-07-15 default
+  * 2022-07-15 (default)
   * 2022-07-12
   * 2022-07-28
   ```
@@ -80,27 +99,6 @@ Commands:
   $ icicle default 2022-07-28
     Setting 2022-07-28 as default.
   ```
-
-## Development
-
-### Requirements
-
-* JDK 11
-* GraalVM
-
-You will need to enable `native-image` builds. See the
-[GraalVM setup](https://graalvm.github.io/native-build-tools/0.9.4/graalvm-setup.html) setup
-documentation for more information.
-
-## Building
-
-To build the native image for your platform.
-
-```shell
-$ ./gradlew nativeCompile
-```
-
-This will output the compiled native binary to `./build/native/nativeCompile/icicle`
 
 # License
 

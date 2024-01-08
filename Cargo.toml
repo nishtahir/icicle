@@ -1,0 +1,16 @@
+[package]
+name = "icicle"
+description = "CLI for OSS CAD Suite toolchain management"
+authors = ["Nish Tahir"]
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+clap = { version = "4.4.13", features = ["cargo"] }
+flate2 = "1.0.28"
+tar = "0.4.40"
+ureq = "2.9.1"
+uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }

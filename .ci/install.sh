@@ -12,13 +12,16 @@ OS="$(uname -s)"
 set_filename() {
   if [ "$OS" = "Darwin" ]; then
     if [ "$(uname -m)" = "arm64" ]; then
-      FILENAME="icicle-macos-arm64"
+      FILENAME="icicle-darwin-arm64"
     else
-      FILENAME="icicle-macos"
+      FILENAME="icicle-darwin-amd64"
     fi
   elif [ "$OS" = "Linux" ]; then
-    # TODO - arm builds?
-    FILENAME="icicle-linux"
+    if [ "$(uname -m)" = "arm64" ]; then
+      FILENAME="icicle-linux-arm64"
+    else
+      FILENAME="icicle-linux-amd64"
+    fi
   fi
 }
 

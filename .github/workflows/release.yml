@@ -1,26 +1,56 @@
+name: build and release
+
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-jobs:
+  workflow_dispatch:
   release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        platform:
+          - os_name: Linux-aarch64
+            os: ubuntu-20.04
+            target: aarch64-unknown-linux-musl
+            bin: icicle-linux-arm64
+          - os_name: Linux-x86_64
+            os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+            bin: icicle-linux-amd64
+          - os_name: macOS-x86_64
+            os: macOS-latest
+            target: x86_64-apple-darwin
+            bin: icicle-darwin-amd64
+          - os_name: macOS-aarch64
+            os: macOS-latest
+            target: aarch64-apple-darwin
+            bin: icicle-darwin-arm64
+        toolchain:
+          - stable
     steps:
-      - uses: actions/checkout@v2
-      - uses: graalvm/setup-graalvm@v1
+      - uses: actions/checkout@v3
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v0
         with:
-          version: '22.1.0'
-          java-version: '11'
-          components: 'native-image'
-      - run: ./gradlew nativeCompile
-      - if: startsWith(matrix.os, 'macOS')
-        run: echo "FILE_NAME=icicle-macos.zip" >> $GITHUB_ENV
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: echo "FILE_NAME=icicle-linux.zip" >> $GITHUB_ENV
-      - uses: actions/upload-artifact@v3
+          command: "build"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--locked --release"
+          strip: true
+      - name: Rename binary (linux and macos)
+        run: mv target/${{ matrix.platform.target }}/release/icicle target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
+      - name: Generate SHA-256
+        run: shasum -a 256 target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} | cut -d ' ' -f 1 > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+      - name: Release binary and SHA-256 checksum to GitHub
+        uses: softprops/action-gh-release@v1
         with:
-          name: ${{ env.FILE_NAME }}
-          path: build/native/nativeCompile/icicle
+          files: |
+            target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
+            target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
