@@ -27,28 +27,21 @@ set_filename() {
 
 download_icicle() {
   if [ "$RELEASE" = "latest" ]; then
-    URL="https://github.com/nishtahir/icicle/releases/latest/download/$FILENAME.zip"
+    URL="https://github.com/nishtahir/icicle/releases/latest/download/$FILENAME"
   else
-    URL="https://github.com/nishtahir/icicle/releases/download/$RELEASE/$FILENAME.zip"
+    URL="https://github.com/nishtahir/icicle/releases/download/$RELEASE/$FILENAME"
   fi
 
   DOWNLOAD_DIR=$(mktemp -d)
   echo "Downloading $URL..."
   mkdir -p "$INSTALL_DIR" &>/dev/null
 
-  if ! curl --progress-bar --fail -L "$URL" -o "$DOWNLOAD_DIR/$FILENAME.zip"; then
+  if ! curl --progress-bar --fail -L "$URL" -o "$DOWNLOAD_DIR/$FILENAME"; then
     echo "Download failed.  Check that the release/filename are correct."
     exit 1
   fi
 
-  unzip -q "$DOWNLOAD_DIR/$FILENAME.zip" -d "$DOWNLOAD_DIR"
-
-  if [ -f "$DOWNLOAD_DIR/icicle" ]; then
-    mv "$DOWNLOAD_DIR/icicle" "$INSTALL_DIR/icicle"
-  else
-    mv "$DOWNLOAD_DIR/$FILENAME/icicle" "$INSTALL_DIR/icicle"
-  fi
-
+  mv "$DOWNLOAD_DIR/$FILENAME" "$INSTALL_DIR/icicle"
   chmod u+x "$INSTALL_DIR/icicle"
 }
 
@@ -72,7 +65,8 @@ setup_shell() {
     echo '  # Icicle https://github.com/nishtahir/icicle/'
     echo '  export PATH='"$INSTALL_DIR"':$PATH'
     echo '  eval "`icicle env`"'
-
+    echo ""
+    
     echo '' >>$CONF_FILE
     echo '# Icicle https://github.com/nishtahir/icicle/' >>$CONF_FILE
     echo 'export PATH='$INSTALL_DIR':$PATH' >>$CONF_FILE
