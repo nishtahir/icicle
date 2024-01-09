@@ -264,13 +264,26 @@ fn handle_default(version: &str) -> Result<()> {
 }
 
 fn handle_env() -> Result<()> {
-    let env = Environment::create()?;
-    let default_alias = Path::new(&env.aliases_home).join("default");
+    // The user is trying to configure their shell to use icicle
+    // We don't expect them to have ICICLE_HOME set yet
+    
+    // If the user has a home set use that otherwise default to ~/.icicle
+    let icicle_home = env::var("ICICLE_HOME").unwrap_or_else(|_| {
+        let home = env::var("HOME").expect("Failed to get home directory");
+        Path::new(&home)
+            .join(".icicle")
+            .to_string_lossy()
+            .to_string()
+    });
 
-    fs::create_dir_all(&env.caches_home).with_context(|| "Failed to create caches directory")?;
+    let aliases_home = Path::new(&icicle_home).join("aliases");
+    let caches_home = Path::new(&icicle_home).join("caches");
+    let default_alias = Path::new(&aliases_home).join("default");
+
+    fs::create_dir_all(&caches_home).with_context(|| "Failed to create caches directory")?;
 
     let file_name = format!("icicle_{}", Uuid::new_v4());
-    let shell_session_sym_link = &env.caches_home.join(file_name);
+    let shell_session_sym_link = &caches_home.join(file_name);
 
     if shell_session_sym_link.exists() {
         fs::remove_file(&shell_session_sym_link)
@@ -287,7 +300,7 @@ fn handle_env() -> Result<()> {
         "export ICICLE_SHELL_PATH={}",
         shell_session_sym_link.display()
     );
-    println!("export ICICLE_HOME={}", env.icicle_home.display());
+    println!("export ICICLE_HOME={}", icicle_home);
     println!("export PATH={}:$PATH", bin_path.display());
     println!("export PATH={}:$PATH", lib_exec_path.display());
 
