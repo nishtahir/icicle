@@ -42,11 +42,42 @@ impl Environment {
             _ => bail!("Unsupported architecture '{}'", env::consts::ARCH),
         };
 
+        let aliases_home = Path::new(&icicle_home).join("aliases");
+        let toolchain_home = Path::new(&icicle_home).join("toolchains");
+        let caches_home = Path::new(&icicle_home).join("caches");
+
+        // make the dirs if they don't exist
+        // this is really just for convenience so we can avoid checks later
+
+        fs::create_dir_all(&icicle_home)
+            .with_context(|| format!("Failed to create icicle home directory '{}'", icicle_home))?;
+
+        fs::create_dir_all(&aliases_home).with_context(|| {
+            format!(
+                "Failed to create aliases home directory '{}'",
+                aliases_home.display()
+            )
+        })?;
+
+        fs::create_dir_all(&toolchain_home).with_context(|| {
+            format!(
+                "Failed to create toolchain home directory '{}'",
+                toolchain_home.display()
+            )
+        })?;
+
+        fs::create_dir_all(&caches_home).with_context(|| {
+            format!(
+                "Failed to create caches home directory '{}'",
+                caches_home.display()
+            )
+        })?;
+
         Ok(Environment {
             icicle_home: Path::new(&icicle_home).to_path_buf(),
-            aliases_home: Path::new(&icicle_home).join("aliases"),
-            toolchain_home: Path::new(&icicle_home).join("toolchains"),
-            caches_home: Path::new(&icicle_home).join("caches"),
+            aliases_home,
+            toolchain_home,
+            caches_home,
             shell_path: Path::new(&shell_path).to_path_buf(),
             os: os.to_string(),
             arch: arch.to_string(),
@@ -90,12 +121,21 @@ fn main() -> Result<()> {
                         .index(1),
                 ),
         )
+        .subcommand(
+            Command::new("uninstall")
+                .about("Uninstall an OSS CAD Suite toolchain")
+                .arg(
+                    Arg::new("version")
+                        .help("The version of the toolchain to install")
+                        .required(false)
+                        .index(1),
+                ),
+        )
         .subcommand(Command::new("current").about("Print the active oss cad toolchain version"))
         .subcommand(
             Command::new("env").about("Print and setup required environment variables for icicle"),
         )
         .subcommand(Command::new("list").about("List installed toolchain versions"))
-        .subcommand(Command::new("uninstall").about("Uninstall an OSS CAD Suite toolchain"))
         .get_matches();
 
     // You can check what subcommand was used like so:
@@ -266,7 +306,7 @@ fn handle_default(version: &str) -> Result<()> {
 fn handle_env() -> Result<()> {
     // The user is trying to configure their shell to use icicle
     // We don't expect them to have ICICLE_HOME set yet
-    
+
     // If the user has a home set use that otherwise default to ~/.icicle
     let icicle_home = env::var("ICICLE_HOME").unwrap_or_else(|_| {
         let home = env::var("HOME").expect("Failed to get home directory");
@@ -359,12 +399,17 @@ fn handle_list() -> Result<()> {
 
     // Resolve default alias
     let default_alias = Path::new(&aliases_home).join("default");
-    let default_alias = fs::canonicalize(&default_alias).with_context(|| {
-        format!(
-            "Failed to resolve default alias '{}'",
-            default_alias.display()
-        )
-    })?;
+
+    // The user might not have a default set
+    let mut default_alias_path = None;
+    if default_alias.exists() {
+        default_alias_path = Some(fs::canonicalize(&default_alias).with_context(|| {
+            format!(
+                "Failed to resolve default alias '{}'",
+                default_alias.display()
+            )
+        })?);
+    }
 
     let entries = fs::read_dir(&toolchain_home).with_context(|| {
         format!(
@@ -376,8 +421,8 @@ fn handle_list() -> Result<()> {
     for entry in entries {
         if let Ok(entry) = entry {
             if entry.path().is_dir() {
-                let mut line = format!("* {}", entry.file_name().to_string_lossy());
-                if fs::canonicalize(entry.path()).unwrap() == default_alias {
+                let mut line: String = format!("* {}", entry.file_name().to_string_lossy());
+                if Some(fs::canonicalize(entry.path()).unwrap()) == default_alias_path {
                     line.push_str(" (default)");
                 }
                 println!("{}", line);
