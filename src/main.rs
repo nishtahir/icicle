@@ -22,13 +22,11 @@ struct Environment {
 
 impl Environment {
     fn create() -> Result<Environment> {
-        let icicle_home = env::var("ICICLE_HOME").with_context(|| {
-            "'ICICLE_HOME' environment variable not set. Did you setup your shell to 'eval $(icicle env)'?"
-        })?;
+        let icicle_home = env::var("ICICLE_HOME")
+            .context("'ICICLE_HOME' environment variable not set. Did you setup your shell to 'eval $(icicle env)'?")?;
 
-        let shell_path = env::var("ICICLE_SHELL_PATH").with_context(|| {
-            "'ICICLE_SHELL_PATH' environment variable not set. Did you setup your shell to 'eval $(icicle env)'?"
-        })?;
+        let shell_path = env::var("ICICLE_SHELL_PATH")
+            .context("'ICICLE_SHELL_PATH' environment variable not set. Did you setup your shell to 'eval $(icicle env)'?")?;
 
         let os = match env::consts::OS {
             "linux" => "linux",
@@ -242,7 +240,7 @@ fn handle_install(version: Option<&String>) -> Result<()> {
 }
 
 fn get_version(env: &Environment, version: Option<&String>) -> Result<String> {
-    let cwd = env::current_dir().with_context(|| "Failed to get current directory")?;
+    let cwd = env::current_dir().context("Failed to get current directory")?;
     let toolchain_file = Path::new(&cwd).join(&env.toolchain_file);
 
     let mut toolchain_file_version = None;
@@ -322,6 +320,8 @@ fn handle_env() -> Result<()> {
 
     fs::create_dir_all(&caches_home).with_context(|| "Failed to create caches directory")?;
 
+    cleanup_old_caches(&caches_home)?;
+
     let file_name = format!("icicle_{}", Uuid::new_v4());
     let shell_session_sym_link = &caches_home.join(file_name);
 
@@ -351,7 +351,7 @@ fn handle_current() -> Result<()> {
     let env = Environment::create()?;
 
     let shell_symlink = fs::canonicalize(env.shell_path)
-        .with_context(|| "Failed to resolve toolchain directory")?;
+        .with_context(|| "Failed to resolve toolchain. You may need to set a toolchain with 'icicle use <toolchain>'")?;
 
     let version_folder = shell_symlink
         .to_str()
@@ -374,7 +374,7 @@ fn handle_use(version: Option<&String>) -> Result<()> {
     let toolchain = search_paths
         .into_iter()
         .find(|path| path.exists())
-        .with_context(|| "Unable to find toolchain. Did you install it with 'icicle install'?")?;
+        .context("Unable to find toolchain. Did you install it with 'icicle install'?")?;
 
     if !toolchain.is_dir() {
         bail!("'{}' is not a valid toolchain directory.", version);
@@ -387,7 +387,7 @@ fn handle_use(version: Option<&String>) -> Result<()> {
 
     // TODO - handle windows
     unix_fs::symlink(&toolchain, shell_symlink).with_context(|| "Failed to create symlink")?;
-
+    println!("Using toolchain {}", version);
     Ok(())
 }
 
@@ -426,6 +426,50 @@ fn handle_list() -> Result<()> {
                     line.push_str(" (default)");
                 }
                 println!("{}", line);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Cleanup symlinks in caches if they've not been accessed for more than 7 days
+/// This was an arbitrary decision but don't want to fill up the user's disk with old symlinks.
+fn cleanup_old_caches(caches_home: &Path) -> Result<()> {
+    const SEVEN_DAYS: u64 = 60 * 60 * 24 * 7;
+
+    let now = std::time::SystemTime::now();
+    let entries = fs::read_dir(&caches_home).with_context(|| {
+        format!(
+            "Failed to read caches directory '{}'",
+            caches_home.display()
+        )
+    })?;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let metadata = entry.metadata().with_context(|| {
+                format!("Failed to get metadata for '{}'", entry.path().display())
+            })?;
+
+            let accessed = metadata.accessed().with_context(|| {
+                format!(
+                    "Failed to get accessed time for '{}'",
+                    entry.path().display()
+                )
+            })?;
+
+            let duration = now.duration_since(accessed).with_context(|| {
+                format!(
+                    "Failed to get duration between now and accessed time for '{}'",
+                    entry.path().display()
+                )
+            })?;
+
+            if duration.as_secs() > SEVEN_DAYS {
+                fs::remove_file(entry.path()).with_context(|| {
+                    format!("Failed to remove file '{}'", entry.path().display())
+                })?;
             }
         }
     }
