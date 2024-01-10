@@ -45,7 +45,7 @@ jobs:
       - name: Rename binary
         run: mv target/${{ matrix.platform.target }}/release/icicle ${{ matrix.platform.bin }}
       - name: Generate SHA-256
-        run: sha256sum -b ${{ matrix.platform.bin }} > ${{ matrix.platform.bin }}.sha256
+        run: shasum -a 256 ${{ matrix.platform.bin }} > ${{ matrix.platform.bin }}.sha256
       - name: Release binary and SHA-256 checksum to GitHub
         uses: softprops/action-gh-release@v1
         with:
