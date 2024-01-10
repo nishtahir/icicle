@@ -42,13 +42,13 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release"
           strip: true
-      - name: Rename binary (linux and macos)
-        run: mv target/${{ matrix.platform.target }}/release/icicle target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
+      - name: Rename binary
+        run: mv target/${{ matrix.platform.target }}/release/icicle ${{ matrix.platform.bin }}
       - name: Generate SHA-256
-        run: shasum -a 256 target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} | cut -d ' ' -f 1 > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+        run: sha256sum -b ${{ matrix.platform.bin }} > ${{ matrix.platform.bin }}.sha256
       - name: Release binary and SHA-256 checksum to GitHub
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
-            target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+            ${{ matrix.platform.bin }}
+            ${{ matrix.platform.bin }}.sha256
