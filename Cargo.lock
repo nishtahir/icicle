@@ -196,6 +196,7 @@ dependencies = [
  "anyhow",
  "clap",
  "flate2",
+ "libc",
  "tar",
  "ureq",
  "uuid",

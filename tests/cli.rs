@@ -468,6 +468,227 @@ fn commands_explain_a_missing_environment() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("ICICLE_HOME"));
 }
 
+// ---- version file lookup -------------------------------------------------------------------
+
+#[test]
+fn version_file_applies_from_subdirectories() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    fs::write(sb.work.join(".icicle-toolchain"), "2024-01-01\n").unwrap();
+    fs::create_dir_all(sb.work.join("src/deeply/nested")).unwrap();
+
+    let out = sb
+        .sh("cd src/deeply/nested && icicle use >/dev/null && icicle current")
+        .success();
+    assert_eq!(out, "2024-01-01");
+}
+
+#[test]
+fn nearest_version_file_wins_over_one_further_up() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+    fs::write(sb.work.join(".icicle-toolchain"), "2024-01-01").unwrap();
+    fs::create_dir_all(sb.work.join("sub")).unwrap();
+    fs::write(sb.work.join("sub/.icicle-toolchain"), "2024-02-02").unwrap();
+
+    let out = sb
+        .sh("cd sub && icicle use >/dev/null && icicle current")
+        .success();
+    assert_eq!(out, "2024-02-02");
+}
+
+// ---- exec ----------------------------------------------------------------------------------
+
+#[test]
+fn exec_runs_a_command_with_the_chosen_toolchain() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+
+    // the shell is on 2024-02-02, exec asks for 2024-01-01 and leaves the shell alone
+    let out = sb
+        .sh("icicle use 2024-02-02 >/dev/null; icicle exec --using 2024-01-01 yosys; yosys; icicle current")
+        .success();
+    assert_eq!(out, "yosys-2024-01-01\nyosys-2024-02-02\n2024-02-02");
+}
+
+#[test]
+fn exec_does_not_need_a_configured_shell() {
+    // e.g. a CI step: no `icicle env`, no ICICLE_SHELL_PATH
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+
+    let out = sb.raw("icicle exec --using 2024-01-01 yosys").success();
+    assert_eq!(out, "yosys-2024-01-01");
+}
+
+#[test]
+fn exec_uses_the_version_file_then_the_default() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+    sb.sh("icicle default 2024-02-02").success();
+
+    // no file: the default
+    assert_eq!(sb.raw("icicle exec yosys").success(), "yosys-2024-02-02");
+
+    // a file in a parent directory wins over the default
+    fs::write(sb.work.join(".icicle-toolchain"), "2024-01-01").unwrap();
+    fs::create_dir_all(sb.work.join("sub")).unwrap();
+    assert_eq!(
+        sb.raw("cd sub && icicle exec yosys").success(),
+        "yosys-2024-01-01"
+    );
+
+    // an explicit version wins over the file
+    assert_eq!(
+        sb.raw("icicle exec --using 2024-02-02 yosys").success(),
+        "yosys-2024-02-02"
+    );
+}
+
+#[test]
+fn exec_passes_arguments_and_exit_codes_through() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+
+    let out =
+        sb.raw("icicle exec --using 2024-01-01 sh -c 'echo \"$1 $2\"; exit 7' sh --flag 'a b'");
+    assert_eq!(out.stdout, "--flag a b");
+    assert!(!out.ok);
+
+    let code = sb
+        .raw("icicle exec --using 2024-01-01 sh -c 'exit 7'; echo $?")
+        .success();
+    assert_eq!(code, "7");
+}
+
+#[test]
+fn exec_reports_problems_clearly() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+
+    let out = sb.raw("icicle exec yosys");
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("No version specified"),
+        "{}",
+        out.stderr
+    );
+
+    let out = sb.raw("icicle exec --using 1999-01-01 yosys");
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("Unable to find toolchain"),
+        "{}",
+        out.stderr
+    );
+
+    let out = sb.raw("icicle exec --using 2024-01-01 no-such-tool");
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("Failed to run 'no-such-tool'"),
+        "{}",
+        out.stderr
+    );
+
+    let out = sb.raw("icicle exec --using ../../etc yosys");
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("not a valid toolchain version"),
+        "{}",
+        out.stderr
+    );
+}
+
+// ---- session lifetime ----------------------------------------------------------------------
+
+fn backdate(link: &Path, timestamp: &str) {
+    assert!(Command::new("touch")
+        .args(["-h", "-t", timestamp])
+        .arg(link)
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[test]
+fn session_links_record_the_owning_shell() {
+    let sb = Sandbox::new();
+    let out = sb.sh(r#"basename "$ICICLE_SHELL_PATH""#).success();
+    let mut parts = out.splitn(3, '_');
+    assert_eq!(parts.next(), Some("icicle"));
+    assert!(parts.next().unwrap().parse::<u32>().is_ok(), "{out}");
+    assert!(parts.next().is_some(), "{out}");
+}
+
+#[test]
+fn old_session_links_survive_while_their_shell_is_alive() {
+    let sb = Sandbox::new();
+    let caches = sb.home.join("caches");
+    fs::create_dir_all(&caches).unwrap();
+
+    let alive = caches.join(format!("icicle_{}_alive", std::process::id()));
+    let dead = caches.join("icicle_4194305_dead");
+    let legacy = caches.join("icicle_d3b07384-d9a0-4c8e-8f3a-1b2c3d4e5f60");
+    for link in [&alive, &dead, &legacy] {
+        unix_fs::symlink("/nonexistent", link).unwrap();
+        backdate(link, "202001010000");
+    }
+
+    sb.sh("true").success();
+    assert!(
+        alive.symlink_metadata().is_ok(),
+        "a live shell's link must be kept"
+    );
+    assert!(
+        dead.symlink_metadata().is_err(),
+        "a dead shell's old link should go"
+    );
+    assert!(
+        legacy.symlink_metadata().is_err(),
+        "an old link with no pid should go"
+    );
+}
+
+#[test]
+fn recent_session_links_are_kept_even_when_their_shell_is_gone() {
+    let sb = Sandbox::new();
+    let caches = sb.home.join("caches");
+    fs::create_dir_all(&caches).unwrap();
+    let recent = caches.join("icicle_4194305_recent");
+    unix_fs::symlink("/nonexistent", &recent).unwrap();
+
+    sb.sh("true").success();
+    assert!(recent.symlink_metadata().is_ok());
+}
+
+#[test]
+fn running_icicle_refreshes_its_own_session_link() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+
+    let out = sb
+        .sh(r#"
+            touch -h -t 202001010000 "$ICICLE_SHELL_PATH"
+            icicle use 2024-01-01 >/dev/null
+            touch -h -t 202001010000 "$ICICLE_SHELL_PATH"
+            icicle list >/dev/null
+            echo "$ICICLE_SHELL_PATH"
+        "#)
+        .success();
+    let link = PathBuf::from(out);
+    let age = std::time::SystemTime::now()
+        .duration_since(link.symlink_metadata().unwrap().modified().unwrap())
+        .unwrap();
+    assert!(age.as_secs() < 3600, "link was not refreshed: {age:?}");
+    // and it still points at the same toolchain
+    assert!(fs::read_link(&link)
+        .unwrap()
+        .ends_with("toolchains/2024-01-01"));
+}
+
 // ---- install -------------------------------------------------------------------------------
 
 /// Serve `routes` (path -> body) on localhost and return the base url
@@ -572,6 +793,21 @@ fn install_then_use() {
     // installing again is a no-op
     let again = with_mirror(&sb, &mirror, "icicle install 2024-01-01").success();
     assert!(again.contains("already installed"), "{again}");
+}
+
+#[test]
+fn install_announces_the_size_without_control_characters_when_not_a_terminal() {
+    let sb = Sandbox::new();
+    let mirror = serve(vec![(route("2024-01-01"), fake_tarball("2024-01-01"))]);
+
+    let out = with_mirror(&sb, &mirror, "icicle install 2024-01-01");
+    assert!(out.ok, "{}", out.stderr);
+    assert!(out.stderr.contains("Downloading "), "{}", out.stderr);
+    assert!(
+        !out.stderr.contains('\r') && !out.stderr.contains('\x1b'),
+        "progress must not draw when stderr is not a terminal: {:?}",
+        out.stderr
+    );
 }
 
 #[test]

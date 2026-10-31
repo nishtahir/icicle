@@ -1,13 +1,14 @@
 use std::env;
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::process::{parent_id, CommandExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use uuid::Uuid;
 
-use crate::environment::{resolve_version, validate_version, Environment, Home};
+use crate::environment::{read_version_file, resolve_version, validate_version, Environment, Home};
 use crate::fs_util::replace_symlink;
 use crate::install;
 
@@ -71,22 +72,42 @@ pub fn use_toolchain(version: Option<&str>) -> Result<()> {
     let env = Environment::create()?;
     let version = resolve_version(&env::current_dir()?, version)?;
 
-    let toolchain = [
-        env.home.toolchains.join(&version),
-        env.home.aliases.join(&version),
-    ]
-    .into_iter()
-    .find(|path| path.exists())
-    .context("Unable to find toolchain. Did you install it with 'icicle install'?")?;
-
-    if !toolchain.is_dir() {
-        bail!("'{}' is not a valid toolchain directory.", version);
-    }
+    let toolchain = env.home.find_toolchain(&version)?;
 
     // TODO - handle windows
     replace_symlink(&toolchain, &env.shell_path)?;
     println!("Using toolchain {}", version);
     Ok(())
+}
+
+/// Run a command with a toolchain's tools on the `PATH`, without touching the shell session.
+/// Works outside of an `icicle env` shell, so it suits scripts and CI.
+pub fn exec(using: Option<&str>, command: &[String]) -> Result<()> {
+    let home = Home::locate()?;
+    let (program, args) = command.split_first().context("No command specified.")?;
+
+    let toolchain = match using {
+        Some(version) => home.find_toolchain(version)?,
+        None => match read_version_file(&env::current_dir()?)? {
+            Some(version) => home.find_toolchain(&version)?,
+            None => home.find_toolchain("default").context(
+                "No version specified. Use '--using <version>', create a '.icicle-toolchain' file or set a default with 'icicle default <version>'.",
+            )?,
+        },
+    };
+
+    let suite = toolchain.join("oss-cad-suite");
+    let mut entries = vec![suite.join("bin"), suite.join("libexec")];
+    entries.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
+    let path = env::join_paths(entries).context("Failed to build PATH")?;
+
+    // exec replaces this process, so the command's exit code and signals pass straight through.
+    // std resolves `program` against the PATH set here.
+    let error = std::process::Command::new(program)
+        .args(args)
+        .env("PATH", path)
+        .exec();
+    Err(error).with_context(|| format!("Failed to run '{}'", program))
 }
 
 pub fn current() -> Result<()> {
@@ -175,7 +196,11 @@ pub fn render_env(home: &Home, previous: Option<&Path>, path: &OsString) -> Resu
         .and_then(|p| fs::read_link(p).ok());
     let target = inherited.unwrap_or_else(|| home.default_alias());
 
-    let session = home.caches.join(format!("icicle_{}", Uuid::new_v4()));
+    // `icicle env` runs as `eval "$(icicle env)"`, so our parent is normally the shell. Recording
+    // it lets cleanup tell a shell that is still open from one that is long gone.
+    let session = home
+        .caches
+        .join(format!("icicle_{}_{}", parent_id(), Uuid::new_v4()));
     replace_symlink(&target, &session)?;
 
     let mut entries = vec![
@@ -199,6 +224,10 @@ fn shell_quote(value: &str) -> String {
 }
 
 /// Best effort. Failing to tidy up must never stop a shell from starting.
+///
+/// A link is removed when it hasn't been used for a week and its shell has gone. Timestamps
+/// alone can't be trusted: using a tool through a symlink does not update the link's times on
+/// every filesystem (macOS for one), so a shell that has been open for weeks looks idle.
 fn cleanup_old_caches(caches: &Path) {
     let Ok(entries) = fs::read_dir(caches) else {
         return;
@@ -206,17 +235,63 @@ fn cleanup_old_caches(caches: &Path) {
 
     let now = SystemTime::now();
     for entry in entries.flatten() {
-        let is_session = entry.file_name().to_string_lossy().starts_with("icicle_");
-        let age = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|modified| now.duration_since(modified).ok());
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("icicle_") {
+            continue;
+        }
 
-        if let (true, Some(age)) = (is_session, age) {
-            if age > CACHE_MAX_AGE {
-                let _ = fs::remove_file(entry.path());
-            }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let last_used = [metadata.accessed().ok(), metadata.modified().ok()]
+            .into_iter()
+            .flatten()
+            .max();
+        let idle = last_used.and_then(|t| now.duration_since(t).ok());
+
+        let is_stale = idle.is_some_and(|idle| idle > CACHE_MAX_AGE);
+        if is_stale && !session_is_alive(&name) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// The pid recorded in a session link name (`icicle_<pid>_<uuid>`), if it is still running.
+/// Links without one, from older versions, are never considered alive.
+fn session_is_alive(name: &str) -> bool {
+    let pid = name
+        .strip_prefix("icicle_")
+        .and_then(|rest| rest.split_once('_'))
+        .and_then(|(pid, _)| pid.parse::<i32>().ok());
+
+    let Some(pid) = pid.filter(|pid| *pid > 0) else {
+        return false;
+    };
+
+    // signal 0 only checks that the process exists; EPERM means it exists but isn't ours
+    // SAFETY: kill with signal 0 sends nothing
+    let exists = unsafe { libc::kill(pid, 0) } == 0;
+    exists || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Keep the timestamps on this shell's own link fresh whenever icicle runs from it
+pub fn refresh_session(home: &Home, shell_path: &Path) {
+    const REFRESH_AFTER: Duration = Duration::from_secs(60 * 60 * 24);
+
+    if shell_path.parent() != Some(home.caches.as_path()) {
+        return;
+    }
+    let Ok(metadata) = shell_path.symlink_metadata() else {
+        return;
+    };
+    let age = metadata
+        .modified()
+        .ok()
+        .and_then(|m| SystemTime::now().duration_since(m).ok());
+
+    if age.is_some_and(|age| age > REFRESH_AFTER) {
+        if let Ok(target) = fs::read_link(shell_path) {
+            let _ = replace_symlink(&target, shell_path);
         }
     }
 }
@@ -224,6 +299,21 @@ fn cleanup_old_caches(caches: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_liveness_follows_the_recorded_pid() {
+        let me = std::process::id();
+        assert!(session_is_alive(&format!("icicle_{me}_abc")));
+        // pid 2^22 + 1 is above the default pid limit on Linux and macOS
+        assert!(!session_is_alive("icicle_4194305_abc"));
+        // old style names have no pid
+        assert!(!session_is_alive(
+            "icicle_d3b07384-d9a0-4c8e-8f3a-1b2c3d4e5f60"
+        ));
+        assert!(!session_is_alive("icicle_0_abc"));
+        assert!(!session_is_alive("icicle_-1_abc"));
+        assert!(!session_is_alive("garbage"));
+    }
 
     #[test]
     fn quotes_awkward_values() {

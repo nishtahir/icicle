@@ -46,6 +46,24 @@ fn cli() -> Command {
                 .about("Uninstall an OSS CAD Suite toolchain")
                 .arg(version_arg("The version of the toolchain to uninstall", true)),
         )
+        .subcommand(
+            Command::new("exec")
+                .about("Run a command with a toolchain's tools, without changing the shell")
+                .arg(
+                    Arg::new("using")
+                        .long("using")
+                        .value_name("VERSION")
+                        .help("The toolchain to run with. Defaults to the '.icicle-toolchain' file, then the default"),
+                )
+                .arg(
+                    Arg::new("command")
+                        .help("The command to run and its arguments")
+                        .required(true)
+                        .num_args(1..)
+                        .trailing_var_arg(true)
+                        .allow_hyphen_values(true),
+                ),
+        )
         .subcommand(Command::new("current").about("Print the active oss cad toolchain version"))
         .subcommand(
             Command::new("env").about("Print and setup required environment variables for icicle"),
@@ -65,6 +83,10 @@ fn main() -> Result<()> {
         Some(("default", m)) => commands::set_default(m.get_one::<String>("version").unwrap()),
         Some(("use", m)) => {
             commands::use_toolchain(m.get_one::<String>("version").map(String::as_str))
+        }
+        Some(("exec", m)) => {
+            let command: Vec<String> = m.get_many::<String>("command").unwrap().cloned().collect();
+            commands::exec(m.get_one::<String>("using").map(String::as_str), &command)
         }
         Some(("current", _)) => commands::current(),
         Some(("env", _)) => commands::env_command(),

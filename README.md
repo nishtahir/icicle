@@ -41,6 +41,7 @@ Commands:
   install    Install an OSS CAD Suite toolchain
   latest     Install the latest OSS CAD Suite toolchain
   uninstall  Uninstall an OSS CAD Suite toolchain
+  exec       Run a command with a toolchain's tools, without changing the shell
   current    Print the active oss cad toolchain version
   env        Print and setup required environment variables for icicle
   list       List installed toolchain versions
@@ -54,7 +55,7 @@ Options:
 
 ## Usage
 
-* `install` - Installs a new OSS Cad Suite toolchain. You can either provide a version to install or a version in a `.icicle-toolchain` file.
+* `install` - Installs a new OSS Cad Suite toolchain. You can either provide a version to install or a version in a `.icicle-toolchain` file. The file is looked up in the current directory and then each parent directory, so it applies from anywhere inside a project.
 
   ```
   // .icicle-toolchain
@@ -72,6 +73,13 @@ Options:
 
   ```
   $ icicle latest
+  ```
+
+* `exec` - Run a command with a toolchain's tools on the `PATH`, without changing the shell session. This also works in scripts and CI where `icicle env` was never run. The toolchain is `--using <version>`, otherwise the nearest `.icicle-toolchain` file, otherwise the default. The command's exit code is passed through.
+
+  ```
+  $ icicle exec --using 2022-07-12 yosys --version
+  $ icicle exec make test
   ```
 
 * `uninstall` - Uninstalls an OSS Cad Suite toolchain
