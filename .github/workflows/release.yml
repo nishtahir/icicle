@@ -6,8 +6,20 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
   build:
+    needs: test
     name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
     runs-on: ${{ matrix.platform.os }}
     strategy:
@@ -15,12 +27,12 @@ jobs:
       matrix:
         platform:
           - os_name: Linux-aarch64
-            os: ubuntu-20.04
+            os: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             bin: icicle-linux-arm64
           - os_name: Linux-x86_64
-            os: ubuntu-20.04
-            target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
             bin: icicle-linux-amd64
           - os_name: macOS-x86_64
             os: macOS-latest
@@ -33,7 +45,7 @@ jobs:
         toolchain:
           - stable
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@v0
         with:
@@ -47,7 +59,7 @@ jobs:
       - name: Generate SHA-256
         run: shasum -a 256 ${{ matrix.platform.bin }} > ${{ matrix.platform.bin }}.sha256
       - name: Release binary and SHA-256 checksum to GitHub
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ matrix.platform.bin }}
