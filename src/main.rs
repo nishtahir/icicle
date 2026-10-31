@@ -2,6 +2,7 @@ mod commands;
 mod environment;
 mod fs_util;
 mod install;
+mod progress;
 
 use anyhow::Result;
 use clap::{crate_description, crate_name, crate_version, Arg, Command};

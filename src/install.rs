@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::environment::{validate_version, Environment};
+use crate::progress::ProgressReader;
 
 const LATEST_RELEASE_URL: &str = "https://github.com/YosysHQ/oss-cad-suite-build/releases/latest";
 
@@ -50,7 +51,15 @@ pub fn install(env: &Environment, version: &str) -> Result<()> {
     }
 
     println!("Extracting toolchain to {}...", toolchain_path.display());
-    let result = unpack(response.into_reader(), &staging).and_then(|_| {
+    let total = response
+        .header("Content-Length")
+        .and_then(|length| length.parse::<u64>().ok());
+    let mut progress = ProgressReader::new(response.into_reader(), total);
+
+    let result = unpack(&mut progress, &staging);
+    progress.finish();
+
+    let result = result.and_then(|_| {
         fs::rename(&staging, &toolchain_path)
             .with_context(|| format!("Failed to move toolchain to '{}'", toolchain_path.display()))
     });
