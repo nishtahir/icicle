@@ -73,7 +73,9 @@ else
 fi
 
 FILENAME="icicle-$OS-$ARCH"
-if [ "$RELEASE" = "latest" ]; then
+if [ -n "$ICICLE_DOWNLOAD_URL" ]; then
+    URL="$ICICLE_DOWNLOAD_URL"
+elif [ "$RELEASE" = "latest" ]; then
     URL="https://github.com/nishtahir/icicle/releases/latest/download/$FILENAME"
 else
     URL="https://github.com/nishtahir/icicle/releases/download/$RELEASE/$FILENAME"
@@ -102,6 +104,7 @@ fi
 
 # Add icicle to the user's shell profile
 CURRENT_SHELL="$(basename "$SHELL")"
+MARKER="# Icicle https://github.com/nishtahir/icicle/"
 
 ensure_containing_dir_exists() {
   local CONTAINING_DIR
@@ -112,61 +115,67 @@ ensure_containing_dir_exists() {
   fi
 }
 
-if [ "$CURRENT_SHELL" = "zsh" ]; then
-  CONF_FILE=${ZDOTDIR:-$HOME}/.zshrc
+# Bash reads ~/.bashrc for interactive non-login shells (most Linux terminals) but only the
+# first of ~/.bash_profile, ~/.bash_login and ~/.profile for login shells (every macOS
+# terminal). Use whichever file the shell is going to read.
+bash_conf_file() {
+  if [ "$OS" = "darwin" ]; then
+    for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+      if [ -f "$candidate" ]; then
+        echo "$candidate"
+        return
+      fi
+    done
+    echo "$HOME/.bash_profile"
+  else
+    echo "$HOME/.bashrc"
+  fi
+}
+
+# append_block <conf file> <shell name> <line>...
+# Does nothing if the file already has an icicle block, so running the installer again
+# (e.g. to upgrade) doesn't stack up duplicates.
+append_block() {
+  local CONF_FILE="$1" SHELL_NAME="$2"
+  shift 2
+
   ensure_containing_dir_exists "$CONF_FILE"
-  echo 'Installing for Zsh.'
+  if [ -f "$CONF_FILE" ] && grep -qF "$MARKER" "$CONF_FILE"; then
+    echo "Icicle is already set up for $SHELL_NAME in $CONF_FILE. Skipping."
+    return
+  fi
+
+  echo "Installing for $SHELL_NAME."
   echo "Appending the following to $CONF_FILE:..."
   echo ''
-  echo '  # Icicle https://github.com/nishtahir/icicle/'
-  echo '  export PATH='"$INSTALL_DIR"':$PATH'
-  echo '  eval "$(icicle env)"'
-  echo ''
-  
-  echo '' >> "$CONF_FILE"
-  echo '# Icicle https://github.com/nishtahir/icicle/' >> "$CONF_FILE"
-  echo 'export PATH='"$INSTALL_DIR"':$PATH' >>"$CONF_FILE"
-  echo 'eval "$(icicle env)"' >>"$CONF_FILE"
-  echo '' >> "$CONF_FILE"
+  {
+    echo ''
+    echo "$MARKER"
+    for line in "$@"; do
+      echo "$line"
+    done
+    echo ''
+  } | tee -a "$CONF_FILE" | sed 's/^/  /'
+}
+
+if [ "$CURRENT_SHELL" = "zsh" ]; then
+  append_block "${ZDOTDIR:-$HOME}/.zshrc" "Zsh" \
+    'export PATH='"$INSTALL_DIR"':$PATH' \
+    'eval "$(icicle env)"'
 
 elif [ "$CURRENT_SHELL" = "fish" ]; then
-  CONF_FILE=$HOME/.config/icicle/conf.d/icicle.fish
-  ensure_containing_dir_exists "$CONF_FILE"
-  echo 'Installing for Fish.'
-  echo "Appending the following to $CONF_FILE:..."
-  echo ''
-  echo '  # Icicle https://github.com/nishtahir/icicle/'
-  echo '  set PATH '"$INSTALL_DIR"' $PATH'
-  echo '  icicle env | source'
-  echo ''
-
-  echo '' >> "$CONF_FILE"
-  echo '# Icicle https://github.com/nishtahir/icicle/' >>"$CONF_FILE"
-  echo 'set PATH '"$INSTALL_DIR"' $PATH' >>"$CONF_FILE"
-  echo 'icicle env | source' >>"$CONF_FILE"
-  echo '' >> "$CONF_FILE"
+  append_block "$HOME/.config/fish/conf.d/icicle.fish" "Fish" \
+    'set PATH '"$INSTALL_DIR"' $PATH' \
+    'icicle env | source'
 
 elif [ "$CURRENT_SHELL" = "bash" ]; then
-  if [ "$OS" = "Darwin" ]; then
-    CONF_FILE=$HOME/.profile
-  else
-    CONF_FILE=$HOME/.bashrc
-  fi
-  ensure_containing_dir_exists "$CONF_FILE"
-  echo 'Installing for Bash.'
-  echo "Appending the following to $CONF_FILE:..."
+  append_block "$(bash_conf_file)" "Bash" \
+    'export PATH='"$INSTALL_DIR"':$PATH' \
+    'eval "$(icicle env)"'
+
+else
+  echo "Unsupported shell '$CURRENT_SHELL'. Add the following to your shell profile:"
   echo ''
-  echo '  # Icicle https://github.com/nishtahir/icicle/'
   echo '  export PATH='"$INSTALL_DIR"':$PATH'
   echo '  eval "$(icicle env)"'
-  echo ''
-
-  echo '' >> "$CONF_FILE"
-  echo '# Icicle https://github.com/nishtahir/icicle/' >> "$CONF_FILE"
-  echo 'export PATH='"$INSTALL_DIR"':$PATH' >> "$CONF_FILE"
-  echo 'eval "$(icicle env)"' >> "$CONF_FILE"
-  echo '' >> "$CONF_FILE"
-
 fi
-
-set +e

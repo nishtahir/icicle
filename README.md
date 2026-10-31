@@ -39,10 +39,11 @@ Commands:
   use        Change the oss cad toolchain version
   default    Set an installed toolchain as the default toolchain
   install    Install an OSS CAD Suite toolchain
+  latest     Install the latest OSS CAD Suite toolchain
+  uninstall  Uninstall an OSS CAD Suite toolchain
   current    Print the active oss cad toolchain version
   env        Print and setup required environment variables for icicle
   list       List installed toolchain versions
-  uninstall  Uninstall an OSS CAD Suite toolchain
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -67,6 +68,12 @@ Options:
   $ icicle install 2022-07-12
   ```
 
+* `latest` - Installs the latest released OSS CAD Suite toolchain
+
+  ```
+  $ icicle latest
+  ```
+
 * `uninstall` - Uninstalls an OSS Cad Suite toolchain
 
   ```
@@ -87,7 +94,7 @@ Options:
   2022-07-15
   ```
 
-* `use` - Set an installed version of the OSS CAD Suite toolchain as the current version linked in the shell session
+* `use` - Set an installed version of the OSS CAD Suite toolchain as the current version linked in the shell session. Like `install`, it falls back to the `.icicle-toolchain` file when no version is given
   ```
   $ icicle use 2022-07-28
   $ icicle current
@@ -99,6 +106,16 @@ Options:
   $ icicle default 2022-07-28
     Setting 2022-07-28 as default.
   ```
+
+## Development
+
+```shell
+$ cargo test
+```
+
+The end to end tests in `tests/cli.rs` run the real binary through `sh` against a throwaway
+`ICICLE_HOME`, and download from a local HTTP server instead of GitHub. Set `ICICLE_DIST_MIRROR`
+to point `install` at a different mirror of the OSS CAD Suite release assets.
 
 # License
 
