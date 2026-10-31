@@ -388,11 +388,25 @@ fn list_marks_the_default_and_ignores_stray_entries() {
     // no default yet
     assert_eq!(sb.sh("icicle list").success(), "* 2024-01-01\n* 2024-02-02");
 
+    // a new shell follows the default, so it is also the current one
     sb.sh("icicle default 2024-02-02").success();
     assert_eq!(
         sb.sh("icicle list").success(),
-        "* 2024-01-01\n* 2024-02-02 (default)"
+        "* 2024-01-01\n* 2024-02-02 (default, current)"
     );
+}
+
+#[test]
+fn list_marks_the_toolchain_this_shell_is_using() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+    sb.sh("icicle default 2024-02-02").success();
+
+    let out = sb
+        .sh("icicle use 2024-01-01 >/dev/null; icicle list")
+        .success();
+    assert_eq!(out, "* 2024-01-01 (current)\n* 2024-02-02 (default)");
 }
 
 #[test]
@@ -466,6 +480,340 @@ fn commands_explain_a_missing_environment() {
         .unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("ICICLE_HOME"));
+}
+
+// ---- which ---------------------------------------------------------------------------------
+
+fn add_libexec_tool(sb: &Sandbox, version: &str, tool: &str) {
+    let dir = sb
+        .home
+        .join("toolchains")
+        .join(version)
+        .join("oss-cad-suite/libexec");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(tool);
+    fs::write(&path, "#!/bin/sh\n").unwrap();
+    fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn which_finds_the_tool_this_shell_would_run() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+
+    let out = sb
+        .sh("icicle use 2024-01-01 >/dev/null; icicle which yosys")
+        .success();
+    assert!(
+        out.ends_with("toolchains/2024-01-01/oss-cad-suite/bin/yosys"),
+        "{out}"
+    );
+    // and that really is what the shell runs
+    let ran = sb
+        .sh("icicle use 2024-01-01 >/dev/null; \"$(icicle which yosys)\"")
+        .success();
+    assert_eq!(ran, "yosys-2024-01-01");
+}
+
+#[test]
+fn which_follows_use_and_accepts_using() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2024-02-02");
+
+    let out = sb
+        .sh("icicle use 2024-02-02 >/dev/null; icicle which --using 2024-01-01 yosys")
+        .success();
+    assert!(out.contains("toolchains/2024-01-01/"), "{out}");
+}
+
+#[test]
+fn which_works_without_a_shell_session() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+
+    let out = sb.raw("icicle which yosys").success();
+    assert!(out.contains("toolchains/2024-01-01/"), "{out}");
+}
+
+#[test]
+fn which_looks_in_libexec_and_prefers_bin() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    add_libexec_tool(&sb, "2024-01-01", "helper");
+    add_libexec_tool(&sb, "2024-01-01", "yosys");
+
+    let helper = sb
+        .sh("icicle use 2024-01-01 >/dev/null; icicle which helper")
+        .success();
+    assert!(helper.ends_with("oss-cad-suite/libexec/helper"), "{helper}");
+    let yosys = sb
+        .sh("icicle use 2024-01-01 >/dev/null; icicle which yosys")
+        .success();
+    assert!(yosys.ends_with("oss-cad-suite/bin/yosys"), "{yosys}");
+}
+
+#[test]
+fn which_reports_missing_and_invalid_tools() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+
+    let out = sb.sh("icicle use 2024-01-01 >/dev/null; icicle which nextpnr");
+    assert!(!out.ok);
+    assert!(
+        out.stderr
+            .contains("'nextpnr' was not found in toolchain '2024-01-01'"),
+        "{}",
+        out.stderr
+    );
+
+    // a non-executable file is not a tool
+    let bin = sb.home.join("toolchains/2024-01-01/oss-cad-suite/bin");
+    fs::write(bin.join("data.txt"), "x").unwrap();
+    assert!(
+        !sb.sh("icicle use 2024-01-01 >/dev/null; icicle which data.txt")
+            .ok
+    );
+
+    let out = sb.sh("icicle which ../../etc/passwd");
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("not a valid tool name"),
+        "{}",
+        out.stderr
+    );
+}
+
+// ---- prune ---------------------------------------------------------------------------------
+
+fn add_payload(sb: &Sandbox, version: &str, bytes: usize) {
+    fs::write(
+        sb.home
+            .join("toolchains")
+            .join(version)
+            .join("oss-cad-suite/blob"),
+        vec![0u8; bytes],
+    )
+    .unwrap();
+}
+
+fn installed(sb: &Sandbox) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(sb.home.join("toolchains"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn prune_keeps_the_default_and_this_shells_toolchain() {
+    let sb = Sandbox::new();
+    for v in ["2023-01-01", "2023-02-02", "2024-01-01", "2024-02-02"] {
+        sb.add_toolchain(v);
+        add_payload(&sb, v, 1024 * 1024);
+    }
+    sb.sh("icicle default 2024-01-01").success();
+
+    let out = sb
+        .sh("icicle use 2024-02-02 >/dev/null; icicle prune --yes")
+        .success();
+    assert!(out.contains("Keeping  2024-01-01 (default)"), "{out}");
+    assert!(
+        out.contains("Keeping  2024-02-02 (in use by this shell)"),
+        "{out}"
+    );
+    assert!(out.contains("Removing 2023-01-01 (1.0 MB)"), "{out}");
+    assert!(out.contains("Removing 2023-02-02 (1.0 MB)"), "{out}");
+    assert!(out.contains("Freed 2.0 MB."), "{out}");
+    assert_eq!(installed(&sb), ["2024-01-01", "2024-02-02"]);
+}
+
+#[test]
+fn prune_notes_when_one_toolchain_is_both_default_and_current() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2023-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+
+    // a new shell follows the default
+    let out = sb.sh("icicle prune --yes").success();
+    assert!(
+        out.contains("Keeping  2024-01-01 (default, in use by this shell)"),
+        "{out}"
+    );
+    assert_eq!(installed(&sb), ["2024-01-01"]);
+}
+
+#[test]
+fn prune_dry_run_removes_nothing() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2023-01-01");
+    sb.add_toolchain("2024-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+
+    let out = sb.sh("icicle prune --dry-run").success();
+    assert!(out.contains("Removing 2023-01-01"), "{out}");
+    assert!(out.contains("Dry run"), "{out}");
+    assert_eq!(installed(&sb), ["2023-01-01", "2024-01-01"]);
+}
+
+#[test]
+fn prune_will_not_delete_without_confirmation_when_nobody_can_answer() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2023-01-01");
+    sb.add_toolchain("2024-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+
+    let out = sb.sh("icicle prune");
+    assert!(!out.ok);
+    assert!(out.stderr.contains("--yes"), "{}", out.stderr);
+    assert_eq!(installed(&sb), ["2023-01-01", "2024-01-01"]);
+}
+
+#[test]
+fn prune_keeps_toolchains_used_by_other_running_shells() {
+    let sb = Sandbox::new();
+    for v in ["2023-01-01", "2023-02-02", "2024-01-01"] {
+        sb.add_toolchain(v);
+    }
+    sb.sh("icicle default 2024-01-01").success();
+
+    let caches = sb.home.join("caches");
+    // a shell that is still running (any live pid) and one that is long gone
+    unix_fs::symlink(
+        sb.home.join("toolchains/2023-01-01"),
+        caches.join(format!("icicle_{}_other", std::process::id())),
+    )
+    .unwrap();
+    unix_fs::symlink(
+        sb.home.join("toolchains/2023-02-02"),
+        caches.join("icicle_4194305_gone"),
+    )
+    .unwrap();
+
+    let out = sb.raw("icicle prune --yes").success();
+    assert!(
+        out.contains("Keeping  2023-01-01 (in use by another shell)"),
+        "{out}"
+    );
+    assert!(out.contains("Removing 2023-02-02"), "{out}");
+    assert_eq!(installed(&sb), ["2023-01-01", "2024-01-01"]);
+}
+
+#[test]
+fn prune_cleans_up_unfinished_installs() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2024-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+    let partial = sb.home.join("toolchains/.2024-03-03.partial");
+    fs::create_dir_all(partial.join("oss-cad-suite")).unwrap();
+    fs::write(partial.join("oss-cad-suite/half"), vec![0u8; 2048]).unwrap();
+
+    let out = sb.sh("icicle prune --yes").success();
+    assert!(out.contains("unfinished install, 2.0 KB"), "{out}");
+    assert!(!partial.exists());
+    assert_eq!(installed(&sb), ["2024-01-01"]);
+}
+
+#[test]
+fn prune_works_in_scripts_and_with_nothing_to_do() {
+    let sb = Sandbox::new();
+    // no toolchains at all
+    assert_eq!(sb.raw("icicle prune --yes").success(), "Nothing to prune.");
+
+    sb.add_toolchain("2024-01-01");
+    sb.add_toolchain("2023-01-01");
+    sb.sh("icicle default 2024-01-01").success();
+    // without `icicle env`, the default is all there is to keep
+    sb.raw("icicle prune --yes").success();
+    assert_eq!(installed(&sb), ["2024-01-01"]);
+    assert!(sb
+        .raw("icicle prune --yes")
+        .success()
+        .ends_with("Nothing to prune."));
+}
+
+#[test]
+fn prune_without_a_default_removes_everything_not_in_use() {
+    let sb = Sandbox::new();
+    sb.add_toolchain("2023-01-01");
+    sb.add_toolchain("2024-01-01");
+
+    sb.sh("icicle use 2024-01-01 >/dev/null; icicle prune --yes")
+        .success();
+    assert_eq!(installed(&sb), ["2024-01-01"]);
+}
+
+// ---- completions ---------------------------------------------------------------------------
+
+#[test]
+fn completions_cover_every_command_for_each_shell() {
+    let sb = Sandbox::new();
+    for shell in ["bash", "zsh", "fish", "elvish", "powershell"] {
+        let script = sb.raw(&format!("icicle completions {shell}")).success();
+        for command in [
+            "install",
+            "latest",
+            "use",
+            "default",
+            "exec",
+            "which",
+            "prune",
+            "completions",
+        ] {
+            assert!(
+                script.contains(command),
+                "{shell} completions are missing '{command}'"
+            );
+        }
+    }
+}
+
+#[test]
+fn completion_scripts_are_valid_shell() {
+    let sb = Sandbox::new();
+    let dir = sb.root.join("completions");
+    fs::create_dir_all(&dir).unwrap();
+
+    let bash = dir.join("icicle.bash");
+    fs::write(&bash, sb.raw("icicle completions bash").success()).unwrap();
+    assert!(Command::new("bash")
+        .arg("-n")
+        .arg(&bash)
+        .status()
+        .unwrap()
+        .success());
+
+    // zsh may not be installed (e.g. minimal CI images)
+    if Command::new("zsh").arg("--version").output().is_ok() {
+        let zsh = dir.join("_icicle");
+        fs::write(&zsh, sb.raw("icicle completions zsh").success()).unwrap();
+        assert!(Command::new("zsh")
+            .arg("-n")
+            .arg(&zsh)
+            .status()
+            .unwrap()
+            .success());
+    }
+}
+
+#[test]
+fn completions_need_no_configuration_and_reject_unknown_shells() {
+    let sb = Sandbox::new();
+    let out = Command::new(ICICLE)
+        .args(["completions", "bash"])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let out = sb.raw("icicle completions tcsh");
+    assert!(!out.ok);
+    assert!(out.stderr.contains("invalid value"), "{}", out.stderr);
 }
 
 // ---- version file lookup -------------------------------------------------------------------

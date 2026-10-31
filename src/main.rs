@@ -5,7 +5,8 @@ mod install;
 mod progress;
 
 use anyhow::Result;
-use clap::{crate_description, crate_name, crate_version, Arg, Command};
+use clap::{crate_description, crate_name, crate_version, value_parser, Arg, ArgAction, Command};
+use clap_complete::Shell;
 
 fn version_arg(help: &'static str, required: bool) -> Arg {
     Arg::new("version").help(help).required(required).index(1)
@@ -64,6 +65,45 @@ fn cli() -> Command {
                         .allow_hyphen_values(true),
                 ),
         )
+        .subcommand(
+            Command::new("which")
+                .about("Print the path of a tool in the active toolchain")
+                .arg(
+                    Arg::new("using")
+                        .long("using")
+                        .value_name("VERSION")
+                        .help("Look in this toolchain instead of the one this shell is using"),
+                )
+                .arg(Arg::new("tool").help("The tool to look for").required(true)),
+        )
+        .subcommand(
+            Command::new("prune")
+                .about("Remove toolchains other than the default and those in use")
+                .arg(
+                    Arg::new("dry-run")
+                        .long("dry-run")
+                        .short('n')
+                        .action(ArgAction::SetTrue)
+                        .help("Show what would be removed without removing it"),
+                )
+                .arg(
+                    Arg::new("yes")
+                        .long("yes")
+                        .short('y')
+                        .action(ArgAction::SetTrue)
+                        .help("Don't ask for confirmation"),
+                ),
+        )
+        .subcommand(
+            Command::new("completions")
+                .about("Print a shell completion script")
+                .arg(
+                    Arg::new("shell")
+                        .help("The shell to generate completions for")
+                        .required(true)
+                        .value_parser(value_parser!(Shell)),
+                ),
+        )
         .subcommand(Command::new("current").about("Print the active oss cad toolchain version"))
         .subcommand(
             Command::new("env").about("Print and setup required environment variables for icicle"),
@@ -87,6 +127,16 @@ fn main() -> Result<()> {
         Some(("exec", m)) => {
             let command: Vec<String> = m.get_many::<String>("command").unwrap().cloned().collect();
             commands::exec(m.get_one::<String>("using").map(String::as_str), &command)
+        }
+        Some(("which", m)) => commands::which(
+            m.get_one::<String>("tool").unwrap(),
+            m.get_one::<String>("using").map(String::as_str),
+        ),
+        Some(("prune", m)) => commands::prune(m.get_flag("dry-run"), m.get_flag("yes")),
+        Some(("completions", m)) => {
+            let shell = *m.get_one::<Shell>("shell").unwrap();
+            clap_complete::generate(shell, &mut cli(), crate_name!(), &mut std::io::stdout());
+            Ok(())
         }
         Some(("current", _)) => commands::current(),
         Some(("env", _)) => commands::env_command(),

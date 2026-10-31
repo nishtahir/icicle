@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::environment::{read_version_file, resolve_version, validate_version, Environment, Home};
 use crate::fs_util::replace_symlink;
 use crate::install;
+use crate::progress::format_bytes;
 
 /// Session links in caches that haven't been touched for this long are removed. This was an
 /// arbitrary decision but don't want to fill up the user's disk with old symlinks.
@@ -80,21 +81,27 @@ pub fn use_toolchain(version: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// The toolchain to run something with: an explicit version, then the nearest
+/// `.icicle-toolchain`, then the default
+fn select_toolchain(home: &Home, using: Option<&str>) -> Result<PathBuf> {
+    if let Some(version) = using {
+        return home.find_toolchain(version);
+    }
+    if let Some(version) = read_version_file(&env::current_dir()?)? {
+        return home.find_toolchain(&version);
+    }
+    home.find_toolchain("default").context(
+        "No version specified. Use '--using <version>', create a '.icicle-toolchain' file or set a default with 'icicle default <version>'.",
+    )
+}
+
 /// Run a command with a toolchain's tools on the `PATH`, without touching the shell session.
 /// Works outside of an `icicle env` shell, so it suits scripts and CI.
 pub fn exec(using: Option<&str>, command: &[String]) -> Result<()> {
     let home = Home::locate()?;
     let (program, args) = command.split_first().context("No command specified.")?;
 
-    let toolchain = match using {
-        Some(version) => home.find_toolchain(version)?,
-        None => match read_version_file(&env::current_dir()?)? {
-            Some(version) => home.find_toolchain(&version)?,
-            None => home.find_toolchain("default").context(
-                "No version specified. Use '--using <version>', create a '.icicle-toolchain' file or set a default with 'icicle default <version>'.",
-            )?,
-        },
-    };
+    let toolchain = select_toolchain(&home, using)?;
 
     let suite = toolchain.join("oss-cad-suite");
     let mut entries = vec![suite.join("bin"), suite.join("libexec")];
@@ -122,31 +129,54 @@ pub fn current_version(home: &Home, shell_path: &Path) -> Result<String> {
         "Failed to resolve toolchain. You may need to set a toolchain with 'icicle use <toolchain>'"
     })?;
 
-    // the home itself may sit behind a symlink (e.g. /tmp on macOS), so compare resolved paths
-    let toolchains = fs::canonicalize(&home.toolchains)
-        .with_context(|| format!("Failed to resolve '{}'", home.toolchains.display()))?;
+    toolchain_name(home, &resolved)
+        .with_context(|| format!("Failed to determine toolchain for '{}'", resolved.display()))
+}
 
+/// The toolchain a fully resolved path is in. The home itself may sit behind a symlink (e.g.
+/// /tmp on macOS), so callers must pass a canonical path, which is compared with the
+/// canonical toolchains directory.
+fn toolchain_name(home: &Home, resolved: &Path) -> Option<String> {
+    let toolchains = fs::canonicalize(&home.toolchains).ok()?;
     let name = match resolved.strip_prefix(&toolchains) {
         Ok(relative) => relative.components().next().map(|c| c.as_os_str()),
         Err(_) => resolved.file_name(),
     };
-
     name.map(|name| name.to_string_lossy().to_string())
-        .with_context(|| format!("Failed to determine toolchain for '{}'", resolved.display()))
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Listed {
+    pub name: String,
+    pub is_default: bool,
+    pub is_current: bool,
 }
 
 pub fn list() -> Result<()> {
     let env = Environment::create()?;
-    for (name, is_default) in list_toolchains(&env.home)? {
-        let suffix = if is_default { " (default)" } else { "" };
-        println!("* {}{}", name, suffix);
+    for toolchain in list_toolchains(&env.home, Some(&env.shell_path))? {
+        let tags: Vec<&str> = [
+            toolchain.is_default.then_some("default"),
+            toolchain.is_current.then_some("current"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        if tags.is_empty() {
+            println!("* {}", toolchain.name);
+        } else {
+            println!("* {} ({})", toolchain.name, tags.join(", "));
+        }
     }
     Ok(())
 }
 
-pub fn list_toolchains(home: &Home) -> Result<Vec<(String, bool)>> {
-    // The user might not have a default set
+/// Installed toolchains, oldest first. `shell_path` is this shell's session link, if any.
+pub fn list_toolchains(home: &Home, shell_path: Option<&Path>) -> Result<Vec<Listed>> {
+    // The user might not have a default, or a session, set
     let default = fs::canonicalize(home.default_alias()).ok();
+    let current = shell_path.and_then(|p| fs::canonicalize(p).ok());
 
     let entries = fs::read_dir(&home.toolchains).with_context(|| {
         format!(
@@ -162,11 +192,218 @@ pub fn list_toolchains(home: &Home) -> Result<Vec<(String, bool)>> {
         if name.starts_with('.') || !path.is_dir() {
             continue;
         }
-        let is_default = default.is_some() && fs::canonicalize(&path).ok() == default;
-        toolchains.push((name, is_default));
+        let resolved = fs::canonicalize(&path).ok();
+        toolchains.push(Listed {
+            name,
+            is_default: resolved.is_some() && resolved == default,
+            is_current: resolved.is_some() && resolved == current,
+        });
     }
     toolchains.sort();
     Ok(toolchains)
+}
+
+/// Print where a tool comes from: `--using`, else what this shell would run, else what
+/// `exec` would run.
+pub fn which(tool: &str, using: Option<&str>) -> Result<()> {
+    let home = Home::locate()?;
+    if tool.is_empty() || tool.contains('/') {
+        bail!("'{}' is not a valid tool name.", tool);
+    }
+
+    let session = match using {
+        Some(_) => None,
+        None => env::var_os("ICICLE_SHELL_PATH").and_then(|p| fs::canonicalize(p).ok()),
+    };
+    let toolchain = match session {
+        Some(toolchain) => toolchain,
+        // resolve aliases such as `default` so the path stays valid if they are repointed
+        None => fs::canonicalize(select_toolchain(&home, using)?)
+            .context("Failed to resolve toolchain.")?,
+    };
+
+    let suite = toolchain.join("oss-cad-suite");
+    let found = ["bin", "libexec"]
+        .iter()
+        .map(|dir| suite.join(dir).join(tool))
+        .find(|candidate| is_executable(candidate));
+
+    match found {
+        Some(path) => {
+            println!("{}", path.display());
+            Ok(())
+        }
+        None => bail!(
+            "'{}' was not found in toolchain '{}'.",
+            tool,
+            toolchain_name(&home, &toolchain).unwrap_or_else(|| toolchain.display().to_string())
+        ),
+    }
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+pub struct PrunePlan {
+    /// Toolchains that stay, and why
+    pub keep: Vec<(String, Vec<&'static str>)>,
+    /// Toolchains to delete, with the space they take
+    pub remove: Vec<(String, u64)>,
+    /// Leftovers of interrupted installs
+    pub partial: Vec<(PathBuf, u64)>,
+}
+
+/// Work out what `prune` would delete. Everything goes except the default, the toolchain this
+/// shell is using, and any toolchain another still-running shell is using.
+pub fn prune_plan(home: &Home, shell_path: Option<&Path>) -> Result<PrunePlan> {
+    let mut reasons: std::collections::BTreeMap<String, Vec<&'static str>> = Default::default();
+    let mut keep_for = |resolved: Option<PathBuf>, reason: &'static str| {
+        if let Some(name) = resolved.and_then(|p| toolchain_name(home, &p)) {
+            reasons.entry(name).or_default().push(reason);
+        }
+    };
+
+    keep_for(fs::canonicalize(home.default_alias()).ok(), "default");
+    keep_for(
+        shell_path.and_then(|p| fs::canonicalize(p).ok()),
+        "in use by this shell",
+    );
+
+    let own_session = shell_path.and_then(|p| fs::canonicalize(p).ok());
+    if let Ok(entries) = fs::read_dir(&home.caches) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let target = fs::canonicalize(entry.path()).ok();
+            // this shell's own link is already counted
+            if target.is_some() && target == own_session {
+                continue;
+            }
+            if session_is_alive(&name) {
+                keep_for(target, "in use by another shell");
+            }
+        }
+    }
+
+    let mut keep = Vec::new();
+    let mut remove = Vec::new();
+    let mut partial = Vec::new();
+    for entry in fs::read_dir(&home.toolchains)
+        .with_context(|| format!("Failed to read '{}'", home.toolchains.display()))?
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if name.starts_with('.') {
+            if name.ends_with(".partial") {
+                partial.push((path.clone(), dir_size(&path)));
+            }
+            continue;
+        }
+        match reasons.remove(&name) {
+            Some(why) => keep.push((name, why)),
+            None => remove.push((name, dir_size(&path))),
+        }
+    }
+    keep.sort();
+    remove.sort();
+    partial.sort();
+    Ok(PrunePlan {
+        keep,
+        remove,
+        partial,
+    })
+}
+
+/// Total size of the files below `path`, not following symlinks
+fn dir_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.metadata() {
+            Ok(m) if m.is_dir() => dir_size(&entry.path()),
+            Ok(m) => m.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+pub fn prune(dry_run: bool, yes: bool) -> Result<()> {
+    let home = Home::locate()?;
+    if !home.toolchains.is_dir() {
+        println!("Nothing to prune.");
+        return Ok(());
+    }
+    let shell_path = env::var_os("ICICLE_SHELL_PATH").map(PathBuf::from);
+    let plan = prune_plan(&home, shell_path.as_deref())?;
+
+    for (name, why) in &plan.keep {
+        println!("Keeping  {} ({})", name, why.join(", "));
+    }
+    for (name, size) in &plan.remove {
+        println!("Removing {} ({})", name, format_bytes(*size));
+    }
+    for (path, size) in &plan.partial {
+        println!(
+            "Removing {} (unfinished install, {})",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            format_bytes(*size)
+        );
+    }
+
+    let total: u64 = plan
+        .remove
+        .iter()
+        .map(|(_, size)| size)
+        .chain(plan.partial.iter().map(|(_, size)| size))
+        .sum();
+    if plan.remove.is_empty() && plan.partial.is_empty() {
+        println!("Nothing to prune.");
+        return Ok(());
+    }
+    if dry_run {
+        println!(
+            "Dry run: would free {}. Nothing was removed.",
+            format_bytes(total)
+        );
+        return Ok(());
+    }
+    if !yes && !confirm(&format!("Free {}?", format_bytes(total)))? {
+        println!("Aborted.");
+        return Ok(());
+    }
+
+    let paths = plan
+        .remove
+        .iter()
+        .map(|(name, _)| home.toolchains.join(name))
+        .chain(plan.partial.iter().map(|(path, _)| path.clone()));
+    for path in paths {
+        fs::remove_dir_all(&path)
+            .with_context(|| format!("Failed to remove '{}'", path.display()))?;
+    }
+    println!("Freed {}.", format_bytes(total));
+    Ok(())
+}
+
+/// Ask on the terminal. Refuses to guess when there is nobody to ask.
+fn confirm(question: &str) -> Result<bool> {
+    use std::io::{BufRead, IsTerminal, Write};
+
+    if !std::io::stdin().is_terminal() {
+        bail!("Refusing to remove toolchains without confirmation. Pass '--yes' to proceed.");
+    }
+    print!("{} [y/N] ", question);
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer)?;
+    Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
 pub fn env_command() -> Result<()> {

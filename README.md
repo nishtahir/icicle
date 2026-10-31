@@ -36,16 +36,19 @@ CLI for OSS CAD Suite toolchain management
 Usage: icicle [COMMAND]
 
 Commands:
-  use        Change the oss cad toolchain version
-  default    Set an installed toolchain as the default toolchain
-  install    Install an OSS CAD Suite toolchain
-  latest     Install the latest OSS CAD Suite toolchain
-  uninstall  Uninstall an OSS CAD Suite toolchain
-  exec       Run a command with a toolchain's tools, without changing the shell
-  current    Print the active oss cad toolchain version
-  env        Print and setup required environment variables for icicle
-  list       List installed toolchain versions
-  help       Print this message or the help of the given subcommand(s)
+  use          Change the oss cad toolchain version
+  default      Set an installed toolchain as the default toolchain
+  install      Install an OSS CAD Suite toolchain
+  latest       Install the latest OSS CAD Suite toolchain
+  uninstall    Uninstall an OSS CAD Suite toolchain
+  exec         Run a command with a toolchain's tools, without changing the shell
+  which        Print the path of a tool in the active toolchain
+  prune        Remove toolchains other than the default and those in use
+  completions  Print a shell completion script
+  current      Print the active oss cad toolchain version
+  env          Print and setup required environment variables for icicle
+  list         List installed toolchain versions
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
@@ -80,6 +83,36 @@ Options:
   ```
   $ icicle exec --using 2022-07-12 yosys --version
   $ icicle exec make test
+  ```
+
+* `which` - Print the path of a tool in the active toolchain. It looks in the toolchain this shell is using, or in the one given with `--using`
+
+  ```
+  $ icicle which yosys
+  /Users/me/.icicle/toolchains/2022-07-28/oss-cad-suite/bin/yosys
+  ```
+
+* `prune` - Free disk space by removing every toolchain except the default, the one this shell is using, and any that another running shell is using. Leftovers from interrupted installs are removed too. It lists what it will remove and asks before deleting. Use `--dry-run` to only look, or `--yes` to skip the question (required when there is no terminal to ask on)
+
+  ```
+  $ icicle prune
+  Keeping  2022-07-28 (default, in use by this shell)
+  Removing 2022-07-12 (1.9 GB)
+  Free 1.9 GB? [y/N] y
+  Freed 1.9 GB.
+  ```
+
+* `completions` - Print a completion script for `bash`, `zsh`, `fish`, `elvish` or `powershell`
+
+  ```shell
+  # ~/.bashrc
+  eval "$(icicle completions bash)"
+
+  # ~/.zshrc (after compinit)
+  eval "$(icicle completions zsh)"
+
+  # fish
+  icicle completions fish > ~/.config/fish/completions/icicle.fish
   ```
 
 * `uninstall` - Uninstalls an OSS Cad Suite toolchain
